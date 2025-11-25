@@ -24,6 +24,11 @@ export default function LoginPage() {
     window.location.assign(path);
   };
 
+  const throwUIError = (msg) => {
+    setError(msg);
+    setLoading(false);
+  };
+
   const handleSubmit = async () => {
     setError("");
     setLoading(true);
@@ -36,31 +41,41 @@ export default function LoginPage() {
 
         const response = await fetch(`${API_BASE_URL}/auth/token`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: formData,
         });
 
         if (!response.ok) {
-          throw new Error("Invalid email or password");
+          throwUIError("Invalid email or password");
+          return;
         }
 
         const data = await response.json();
         localStorage.setItem("token", data.access_token);
-        doNavigate("/home");
+        
+        // Check if user needs onboarding
+        const userResponse = await fetch(`${API_BASE_URL}/users/me`, {
+          headers: { "Authorization": `Bearer ${data.access_token}` }
+        });
+        const userData = await userResponse.json();
+        
+        // Redirect to onboarding if not completed, otherwise go to home
+        if (!userData.onboarding_completed) {
+          doNavigate("/onboarding");
+        } else {
+          doNavigate("/home");
+        }
       } else {
         const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ email, username, password }),
         });
 
         if (!registerResponse.ok) {
-          const error = await registerResponse.json();
-          throw new Error(error.detail || "Registration failed");
+          const errorData = await registerResponse.json();
+          throwUIError(errorData.detail || "Registration failed");
+          return;
         }
 
         const formData = new URLSearchParams();
@@ -69,22 +84,23 @@ export default function LoginPage() {
 
         const loginResponse = await fetch(`${API_BASE_URL}/auth/token`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
           body: formData,
         });
 
         if (!loginResponse.ok) {
-          throw new Error("Login after registration failed");
+          throwUIError("Login after registration failed");
+          return;
         }
 
         const data = await loginResponse.json();
         localStorage.setItem("token", data.access_token);
-        doNavigate("/home");
+        
+        // New users always need onboarding
+        doNavigate("/onboarding");
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
+      throwUIError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
       setLoading(false);
     }
@@ -104,16 +120,19 @@ export default function LoginPage() {
             CHATBOT AI
           </span>
         </div>
+
         <div className="flex min-h-screen items-center justify-center">
           <div className="w-full max-w-md p-8">
             <h2 className="mb-6 text-center text-2xl font-semibold">
               {isLogin ? "Log in to your account" : "Create your account"}
             </h2>
+
             {error && (
               <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-500">
                 {error}
               </div>
             )}
+
             <div>
               <div className="mb-4">
                 <label
@@ -132,6 +151,7 @@ export default function LoginPage() {
                   className="w-full rounded-lg border border-gray-200 p-2 placeholder:text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
                 />
               </div>
+
               {!isLogin && (
                 <div className="mb-4">
                   <label
@@ -151,7 +171,8 @@ export default function LoginPage() {
                   />
                 </div>
               )}
-              <div className="mb-4">
+
+              <div className="mb-2">
                 <label
                   htmlFor="password"
                   className="mb-1 block text-sm font-medium text-black"
@@ -168,6 +189,18 @@ export default function LoginPage() {
                   className="w-full rounded-lg border border-gray-200 p-2 placeholder:text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
                 />
               </div>
+
+              {isLogin && (
+                <div className="mb-4 text-right">
+                  <button
+                    onClick={() => doNavigate("/forgot-password")}
+                    className="text-sm text-gray-600 hover:text-black transition-colors"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+              )}
+
               <button
                 onClick={handleSubmit}
                 disabled={loading || !isFormValid}
@@ -201,7 +234,7 @@ export default function LoginPage() {
                         d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                       ></path>
                     </svg>
-                    {isLogin ? "Logging In ....." : "Creating Account ....."}
+                    {isLogin ? "Logging in..." : "Creating account..."}
                   </span>
                 ) : isLogin ? (
                   "Log in"
@@ -209,6 +242,7 @@ export default function LoginPage() {
                   "Sign up"
                 )}
               </button>
+
               <div className="text-center">
                 <span className="text-sm text-gray-600">
                   {isLogin
@@ -226,7 +260,8 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
-      {/* Right side - Full Black */}
+
+      {/* Right Side */}
       <div className="hidden py-[3vh] pr-[3vh] lg:block lg:w-1/2">
         <div className="relative h-full rounded-3xl bg-black overflow-hidden">
           <div className="absolute top-0 right-0 w-96 h-96 bg-black rounded-full mix-blend-multiply filter blur-3xl opacity-20"></div>
@@ -281,15 +316,15 @@ export default function LoginPage() {
 
                 <div className="grid grid-cols-3 gap-3">
                   <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 text-center">
-                    <Zap className="w-6 h-6 mx-auto mb-2" />
+                    <Zap className="w-6 h-6 mx-auto mb-2 text-white" />
                     <p className="text-xs font-medium text-white">Fast</p>
                   </div>
                   <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 text-center">
-                    <Shield className="w-6 h-6 mx-auto mb-2" />
+                    <Shield className="w-6 h-6 mx-auto mb-2 text-white" />
                     <p className="text-xs font-medium text-white">Secure</p>
                   </div>
                   <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 text-center">
-                    <Check className="w-6 h-6 mx-auto mb-2" />
+                    <Check className="w-6 h-6 mx-auto mb-2 text-white" />
                     <p className="text-xs font-medium text-white">Reliable</p>
                   </div>
                 </div>

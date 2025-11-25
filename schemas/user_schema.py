@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 
 class UserBase(BaseModel):
@@ -18,9 +18,20 @@ class UserResponse(UserBase):
     id: UUID
     is_active: bool
     created_at: datetime
+    education_level: Optional[str] = None
+    major: Optional[str] = None
+    completed_courses: Optional[List[str]] = None
+    onboarding_completed: bool = False
 
     class Config:
         from_attributes = True
+
+
+class OnboardingData(BaseModel):
+    """Schema for academic onboarding"""
+    education_level: str
+    major: str
+    completed_courses: List[str] = []
 
 
 class UserLogin(BaseModel):
