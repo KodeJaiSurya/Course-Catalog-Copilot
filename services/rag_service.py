@@ -14,6 +14,7 @@ from services.embedding_service import (
     prepare_professor_text,
     prepare_course_text
 )
+from utils.browser_search import duckduckgo_search, fetch_webpage_content
 
 
 # ========== INGESTION FUNCTIONS ==========
@@ -115,62 +116,167 @@ def ingest_courses_batch(courses_data: List[dict], db: Session) -> List[Course]:
         except Exception as e:
             print(f"Error ingesting course {course_data.get('title')}: {e}")
             continue
-
     return courses
 
 
+def search_professors(query: str):
+    """
+    Comprehensive web search fallback
+    
+    Args:
+        query: Search query
+        search_type: "professor"
+    
+    Returns:
+        Search results with summaries
+    """
+    results = {
+        "query": query,
+        "sources": [],
+        "summary": ""
+    }
+
+    try:
+        enhanced_query = f"{query} site:ratemyprofessors.com"
+
+        # # Try DuckDuckGo first (more reliable)
+        search_results = duckduckgo_search(enhanced_query, max_results=5)
+
+        # Process results
+        for result in search_results[:2]:  # Top 3 results
+            source = {
+                "title": result['title'],
+                "link": result['link'],
+                "snippet": result['snippet']
+            }
+
+            if result['link']:
+                content = fetch_webpage_content(result['link'])
+                source['content'] = content 
+
+            results["sources"].append(source)
+
+        # Create summary from snippets
+        if results["sources"]:
+            snippets = [s['content']
+                        for s in results["sources"] if s['content']]
+            results["summary"] = " ".join(
+                snippets[:2])  
+
+    except Exception as e:
+        print(f"Web fallback search error: {e}")
+        results["error"] = str(e)
+
+    return results
+
+
+def search_courses(query: str):
+    """
+    Comprehensive web search using two targeted query variations.
+    
+    Args:
+        query: Search query
+    
+    Returns:
+        Search results with combined sources and unified summary
+    """
+    results = {
+        "query": query,
+        "sources": [],
+        "summary": ""
+    }
+
+    try:
+        # Two enhanced search variations
+        enhanced_query1 = f"{query} bnrordsp.neu.edu"
+        enhanced_query2 = f"{query} Search Neu"
+        all_results = []
+        for enhanced_query in [enhanced_query1, enhanced_query2]:
+            search_results = duckduckgo_search(enhanced_query, max_results=2)
+            all_results.extend(search_results)
+
+        # Remove duplicates (based on link)
+        unique_links = set()
+        unique_results = []
+        for result in all_results:
+            if result['link'] not in unique_links:
+                unique_links.add(result['link'])
+                unique_results.append(result)
+        
+        for result in unique_results[:4]:
+            source = {
+                "title": result.get('title', ''),
+                "link": result.get('link', ''),
+                "snippet": result.get('snippet', '')
+            }
+            if result.get('link'):
+                content = fetch_webpage_content(result['link'])
+                source['content'] = content
+            results["sources"].append(source)
+
+        # Create a combined summary using top snippets
+        if results["sources"]:
+            snippets = [s.get('snippet', '') for s in results["sources"] if s.get('snippet')]
+            results["summary"] = " ".join(
+                snippets[:3])  # Combine up to 3 snippets
+
+    except Exception as e:
+        print(f"Web fallback search error: {e}")
+        results["error"] = str(e)
+    return results
+
+def search_both(query: str):
+    """
+    Comprehensive web search fallback
+
+    Args:
+        query: Search query
+        search_type: "both"
+
+    Returns:
+        Search results with summaries
+    """
+    results = {
+        "query": query,
+        "sources": [],
+        "summary": ""
+    }
+
+    try:
+        enhanced_query = f"{query} Search Neu"
+        search_results = duckduckgo_search(enhanced_query, max_results=5)
+        # Process results
+        for result in search_results[:2]:  # Top 3 results
+            source = {
+                "title": result['title'],
+                "link": result['link'],
+                "snippet": result['snippet']
+            }
+
+            if result['link']:
+                content = fetch_webpage_content(result['link'])
+                source['content'] = content 
+            results["sources"].append(source)
+        # Create summary from snippets
+        if results["sources"]:
+            snippets = [s['snippet']
+                        for s in results["sources"] if s['snippet']]
+            results["summary"] = " ".join(
+                snippets[:2])  # Combine first 2 snippets
+
+    except Exception as e:
+        print(f"Web fallback search error: {e}")
+        results["error"] = str(e)
+    return results
+
 # ========== RETRIEVAL FUNCTIONS ==========
 
-def search_professors(query: str, limit: int, db: Session) -> List[SearchResult]:
+
+def suggest_courses(query: str, limit: int, db: Session) -> List[SearchResult]:
     """
-    Search professors using semantic similarity
+    Suggest courses using semantic similarity
     """
-    # Generate embedding for query
     query_embedding = generate_embedding(query)
-
-    # Use pgvector's cosine similarity operator
-    # <=> is cosine distance, we want similarity so use 1 - distance
-    sql = text("""
-        SELECT 
-            id, name, department, rating, url, full_data,
-            1 - (embedding <=> :query_embedding) as similarity
-        FROM professors
-        WHERE embedding IS NOT NULL
-        ORDER BY embedding <=> :query_embedding
-        LIMIT :limit
-    """)
-
-    results = db.execute(
-        sql,
-        {"query_embedding": str(query_embedding), "limit": limit}
-    ).fetchall()
-
-    search_results = []
-    for row in results:
-        search_results.append(SearchResult(
-            type="professor",
-            data={
-                "id": row[0],
-                "name": row[1],
-                "department": row[2],
-                "rating": row[3],
-                "url": row[4],
-                "full_data": row[5]
-            },
-            similarity=float(row[6])
-        ))
-
-    return search_results
-
-
-def search_courses(query: str, limit: int, db: Session) -> List[SearchResult]:
-    """
-    Search courses using semantic similarity
-    """
-    # Generate embedding for query
-    print("Before Query Embedding")
-    query_embedding = generate_embedding(query)
-    print("After Query Embedding")
 
     sql = text("""
         SELECT 
@@ -187,15 +293,12 @@ def search_courses(query: str, limit: int, db: Session) -> List[SearchResult]:
         {"query_embedding": str(query_embedding), "limit": limit}
     ).fetchall()
 
-    
-
     search_results = []
     for row in results:
         title_raw = row[2] or ""
         title = title_raw.replace("\xa0", " ").strip()
-        relevant = is_title_relevant_to_query(query, title)  # From your LLM check
-
-        if relevant:  # Only add if matched
+        relevant = is_title_relevant_to_query(query, title)  
+        if relevant:  
             search_results.append(SearchResult(
                 type="course",
                 data={
@@ -208,8 +311,6 @@ def search_courses(query: str, limit: int, db: Session) -> List[SearchResult]:
                 similarity=float(row[5]),
                 llm_title_match=relevant
             ))
-
-    # If no relevant matches, return empty list
     return search_results
 
 
@@ -234,41 +335,6 @@ def is_title_relevant_to_query(query: str, title: str) -> bool:
 
     answer = response.content.strip().lower()
     return answer == "yes"
-
-
-def search_all(query: str, limit: int, db: Session) -> List[SearchResult]:
-    """
-    Search both professors and courses, return combined results
-    """
-    # Classify query to determine if it's about professor or course
-    query_lower = query.lower()
-
-    # Keywords that indicate professor search
-    prof_keywords = ['professor', 'prof', 'teacher',
-                     'instructor', 'faculty', 'rating']
-
-    # Keywords that indicate course search
-    course_keywords = ['course', 'class', 'credit',
-                       'hours', 'syllabus', 'curriculum']
-
-    is_prof_query = any(kw in query_lower for kw in prof_keywords)
-    is_course_query = any(kw in query_lower for kw in course_keywords)
-
-    # If query is specifically about one type, search only that
-    if is_prof_query and not is_course_query:
-        return search_professors(query, limit, db)
-    elif is_course_query and not is_prof_query:
-        return search_courses(query, limit, db)
-
-    # Otherwise, search both and combine results
-    prof_results = search_professors(query, limit // 2 + 1, db)
-    course_results = search_courses(query, limit // 2 + 1, db)
-
-    # Combine and sort by similarity
-    all_results = prof_results + course_results
-    all_results.sort(key=lambda x: x.similarity, reverse=True)
-
-    return all_results[:limit]
 
 
 def get_professor_by_id(professor_id: int, db: Session) -> Professor:

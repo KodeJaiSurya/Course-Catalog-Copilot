@@ -21,7 +21,7 @@ from services.rag_service import (
     ingest_courses_batch,
     search_professors,
     search_courses,
-    search_all,
+    search_both,
     get_all_professors,
     get_all_courses
 )

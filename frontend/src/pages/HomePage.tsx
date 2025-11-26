@@ -15,6 +15,7 @@ import {
   Menu,
   User,
   MoreVertical,
+  Settings,
 } from "lucide-react";
 
 const API_BASE_URL = "http://localhost:8000";
@@ -127,7 +128,11 @@ export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const plusMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadUser();
@@ -142,6 +147,18 @@ export default function HomePage() {
     const handleClickOutside = (e: MouseEvent) => {
       if (openMenuId !== null) {
         setOpenMenuId(null);
+      }
+      if (
+        userMenuRef.current &&
+        !userMenuRef.current.contains(e.target as Node)
+      ) {
+        setShowUserMenu(false);
+      }
+      if (
+        plusMenuRef.current &&
+        !plusMenuRef.current.contains(e.target as Node)
+      ) {
+        setShowPlusMenu(false);
       }
     };
     document.addEventListener("click", handleClickOutside);
@@ -387,6 +404,15 @@ export default function HomePage() {
     window.location.href = "/login";
   };
 
+  const goToProfile = () => {
+    window.location.href = "/profile";
+  };
+
+  const handlePrefixSelect = (prefix: string) => {
+    setMessage(prefix);
+    setShowPlusMenu(false);
+  };
+
   // Session expired overlay
   if (sessionExpired) {
     return (
@@ -524,19 +550,46 @@ export default function HomePage() {
         </ScrollArea>
 
         <div className="p-3 border-t border-gray-200">
-          <div className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-full bg-black flex items-center justify-center">
-                <User className="h-4 w-4 text-white" />
+          <div className="relative" ref={userMenuRef}>
+            <div
+              className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowUserMenu(!showUserMenu);
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-full bg-black flex items-center justify-center">
+                  <User className="h-4 w-4 text-white" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">{user?.username}</p>
+                  <p className="text-xs text-gray-500">{user?.email}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-medium">{user?.username}</p>
-                <p className="text-xs text-gray-500">{user?.email}</p>
-              </div>
+              <Button size="sm" variant="ghost">
+                <MoreVertical className="h-4 w-4" />
+              </Button>
             </div>
-            <Button size="sm" variant="ghost" onClick={handleLogout}>
-              <LogOut className="h-4 w-4" />
-            </Button>
+
+            {showUserMenu && (
+              <div className="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                <button
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center"
+                  onClick={goToProfile}
+                >
+                  <Settings className="h-4 w-4 mr-2" />
+                  Profile Settings
+                </button>
+                <button
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center text-red-600"
+                  onClick={handleLogout}
+                >
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Log Out
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -639,6 +692,39 @@ export default function HomePage() {
             <div className="border-t border-gray-200 bg-white p-4">
               <div className="max-w-4xl mx-auto">
                 <div className="flex gap-3 items-end bg-white rounded-2xl p-2 border border-gray-200">
+                  <div className="relative" ref={plusMenuRef}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowPlusMenu(!showPlusMenu);
+                      }}
+                      disabled={loading}
+                      className="h-10 w-10 p-0 hover:bg-gray-100 rounded-xl"
+                    >
+                      <Plus className="h-5 w-5" />
+                    </Button>
+
+                    {showPlusMenu && (
+                      <div className="absolute bottom-full left-0 mb-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                        <button
+                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center"
+                          onClick={() => handlePrefixSelect("professor> ")}
+                        >
+                          <User className="h-4 w-4 mr-2" />
+                          Professor
+                        </button>
+                        <button
+                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center"
+                          onClick={() => handlePrefixSelect("course> ")}
+                        >
+                          <MessageSquare className="h-4 w-4 mr-2" />
+                          Course
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <Input
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}

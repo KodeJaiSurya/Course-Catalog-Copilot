@@ -9,7 +9,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, System
 from sqlalchemy.orm import Session
 import operator
 
-from services.rag_service import search_professors, search_courses, search_all
+from services.rag_service import search_professors, search_courses, search_both
 from config import settings
 from langgraph.checkpoint.postgres import PostgresSaver  # <-- Postgres checkpointer
 
@@ -48,9 +48,11 @@ Be conversational and helpful
 Always cite specific professor names, ratings, departments, and highlight student reviews when the user asks about professors
 Always cite specific course codes and titles, and focus more on the topics, content coverage, and learning outcomes when the user asks about courses
 If asked about both professors and courses, provide detailed information on both—student reviews for professors and topic coverage for courses
+If a professor appears in RateMyProfessors under a different university, ignore the university affiliation entirely.
 If no relevant results are found, suggest that the user refine their query
 Be honest about limitations—don't make up information
 Available information from search results will be provided to you. Always base your responses strictly on that information.
+Prioritize clarity and avoid mixing up universities
 """
 
 
@@ -111,7 +113,7 @@ def search_courses_node(state: AgentState, db: Session) -> dict:
 def search_both_node(state: AgentState, db: Session) -> dict:
     """Search both professors and courses"""
     query = state["messages"][-1].content
-    results = search_all(query, limit=10, db=db)
+    results = search_both(query, limit=10, db=db)
 
     # Separate results by type
     professor_results = [r for r in results if r.type == "professor"]

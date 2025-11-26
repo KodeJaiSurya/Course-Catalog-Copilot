@@ -1,3 +1,4 @@
+from typing import List
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
 from typing import Optional
@@ -11,6 +12,15 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     """Schema for creating a user"""
     password: str
+    degree: str 
+    course: str 
+    courses_taken: Optional[List[str]] = None
+
+
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    area_of_study: Optional[str] = None
+    courses_taken: Optional[List[str]] = None
 
 
 class UserResponse(UserBase):
