@@ -216,9 +216,9 @@ def search_courses(query: str):
 
         # Create a combined summary using top snippets
         if results["sources"]:
-            snippets = [s.get('snippet', '') for s in results["sources"] if s.get('snippet')]
+            snippets = [s.get('content', '') for s in results["sources"] if s.get('content')]
             results["summary"] = " ".join(
-                snippets[:3])  # Combine up to 3 snippets
+                snippets[:4])  # Combine up to 3 snippets
 
     except Exception as e:
         print(f"Web fallback search error: {e}")

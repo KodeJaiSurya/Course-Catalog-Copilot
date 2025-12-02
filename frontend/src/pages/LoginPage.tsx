@@ -1,13 +1,6 @@
-import Fuse from "fuse.js";
-import React, { useState, useEffect, useRef } from "react";
-import {
-  MessageSquare,
-  Sparkles,
-  Zap,
-  Shield,
-  Check,
-  ArrowLeft,
-} from "lucide-react";
+import type React from "react";
+import { useState, useEffect, useRef } from "react";
+import { ArrowLeft } from "lucide-react";
 
 const API_BASE_URL = "http://localhost:8000";
 
@@ -23,20 +16,18 @@ export default function LoginPage() {
   // Step 2 fields
   const [degree, setDegree] = useState("");
   const [course, setCourse] = useState("");
-  const [coursesTaken, setCoursesTaken] = useState([]);
+  const [coursesTaken, setCoursesTaken] = useState<string[]>([]);
   const [courseSearch, setCourseSearch] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
-
-  const [availableCourses, setAvailableCourses] = useState([]);
+  const [availableCourses, setAvailableCourses] = useState<string[]>([]);
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [isFormValid, setIsFormValid] = useState(false);
 
-  const searchRef = useRef(null);
-  const [fuse, setFuse] = useState(null);
+  const searchRef = useRef<HTMLDivElement | null>(null);
 
-  // Fetch courses from API
+  // Fetch all available courses
   useEffect(() => {
     const fetchCourses = async () => {
       try {
@@ -45,14 +36,6 @@ export default function LoginPage() {
 
         const data = await response.json();
         setAvailableCourses(data);
-
-        // Initialize Fuse.js with options
-        const fuseInstance = new Fuse(data, {
-          threshold: 0.3, // 0.0 = exact match, 1.0 = very fuzzy
-          minMatchCharLength: 2,
-        });
-
-        setFuse(fuseInstance);
       } catch (err) {
         console.error("Error fetching courses:", err);
       }
@@ -63,16 +46,20 @@ export default function LoginPage() {
 
   // Close suggestions when clicking outside
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (searchRef.current && !searchRef.current.contains(event.target)) {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        searchRef.current &&
+        !searchRef.current.contains(event.target as Node)
+      ) {
         setShowSuggestions(false);
       }
     };
+
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Validate form based on current step
+  // Validate form
   useEffect(() => {
     if (isLogin) {
       setIsFormValid(!!email && !!password);
@@ -85,27 +72,27 @@ export default function LoginPage() {
     }
   }, [email, username, password, degree, course, isLogin, step]);
 
-  const doNavigate = (path) => {
+  const doNavigate = (path: string) => {
     window.location.assign(path);
   };
 
-  const throwUIError = (msg) => {
+  const throwUIError = (msg: string) => {
     setError(msg);
     setLoading(false);
   };
 
-  // Filter courses for autocomplete
-  let filteredCourses = [];
+  const filteredCourses =
+    courseSearch.trim() !== ""
+      ? availableCourses
+          .filter(
+            (c) =>
+              c.toLowerCase().includes(courseSearch.toLowerCase()) &&
+              !coursesTaken.includes(c)
+          )
+          .slice(0, 8)
+      : [];
 
-  if (courseSearch.trim() !== "" && fuse) {
-    filteredCourses = fuse
-      .search(courseSearch)
-      .map((result) => result.item)
-      .filter((course) => !coursesTaken.includes(course));
-  }
-
-
-  const addCourse = (courseName) => {
+  const addCourse = (courseName: string) => {
     if (!coursesTaken.includes(courseName)) {
       setCoursesTaken([...coursesTaken, courseName]);
       setCourseSearch("");
@@ -113,7 +100,7 @@ export default function LoginPage() {
     }
   };
 
-  const removeCourse = (courseName) => {
+  const removeCourse = (courseName: string) => {
     setCoursesTaken(coursesTaken.filter((c) => c !== courseName));
   };
 
@@ -129,12 +116,14 @@ export default function LoginPage() {
     setError("");
   };
 
+  // 🔥 EXACT SAME BACKEND LOGIC AS YOUR FIRST CODE
   const handleSubmit = async () => {
     setError("");
     setLoading(true);
 
     try {
       if (isLogin) {
+        // LOGIN: /auth/token (x-www-form-urlencoded)
         const formData = new URLSearchParams();
         formData.append("username", email);
         formData.append("password", password);
@@ -152,8 +141,10 @@ export default function LoginPage() {
 
         const data = await response.json();
         localStorage.setItem("token", data.access_token);
+
         doNavigate("/home");
       } else {
+        // REGISTER: /auth/register (JSON)
         const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -173,7 +164,7 @@ export default function LoginPage() {
           return;
         }
 
-        // Auto-login after registration
+        // AUTO LOGIN
         const formData = new URLSearchParams();
         formData.append("username", email);
         formData.append("password", password);
@@ -191,6 +182,7 @@ export default function LoginPage() {
 
         const data = await loginResponse.json();
         localStorage.setItem("token", data.access_token);
+
         doNavigate("/home");
       }
     } catch (err) {
@@ -200,13 +192,10 @@ export default function LoginPage() {
     }
   };
 
-  const handleKeyPress = (e) => {
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && isFormValid) {
-      if (!isLogin && step === 1) {
-        handleNext();
-      } else {
-        handleSubmit();
-      }
+      if (!isLogin && step === 1) handleNext();
+      else handleSubmit();
     }
   };
 
@@ -223,33 +212,37 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen w-full">
-      <div className="relative w-full lg:w-1/2 bg-white">
+    <div className="flex min-h-screen w-full bg-[#020617] text-white">
+      {/* Left Side - Auth Card */}
+      <div className="relative w-full bg-[#020617] lg:w-1/2">
         <div className="absolute left-8 top-6">
-          <span className="text-xl font-bold tracking-tight text-black">
-            CHATBOT AI
+          <span className="text-xl font-bold tracking-tight text-[#e5f9ff]">
+            COURSE CO-PILOT
           </span>
         </div>
 
-        <div className="flex min-h-screen items-center justify-center">
-          <div className="w-full max-w-md p-8">
-            {/* Step indicator for registration */}
+        <div className="flex min-h-screen items-center justify-center px-4">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#050b10]/80 p-8 shadow-2xl shadow-black/60 backdrop-blur-xl">
             {!isLogin && (
               <div className="mb-6 flex items-center justify-center gap-2">
                 <div
-                  className={`h-2 w-16 rounded-full ${
-                    step === 1 ? "bg-black" : "bg-gray-300"
+                  className={`h-2 w-16 rounded-full transition-colors ${
+                    step === 1
+                      ? "bg-[#00f4a2] shadow-[0_0_12px_#00f4a2]"
+                      : "bg-white/10"
                   }`}
-                ></div>
+                />
                 <div
-                  className={`h-2 w-16 rounded-full ${
-                    step === 2 ? "bg-black" : "bg-gray-300"
+                  className={`h-2 w-16 rounded-full transition-colors ${
+                    step === 2
+                      ? "bg-[#00f4a2] shadow-[0_0_12px_#00f4a2]"
+                      : "bg-white/10"
                   }`}
-                ></div>
+                />
               </div>
             )}
 
-            <h2 className="mb-6 text-center text-2xl font-semibold">
+            <h2 className="mb-6 text-center text-2xl font-semibold text-white">
               {isLogin
                 ? "Log in to your account"
                 : step === 1
@@ -258,18 +251,17 @@ export default function LoginPage() {
             </h2>
 
             {error && (
-              <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-500">
+              <div className="mb-4 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">
                 {error}
               </div>
             )}
 
-            {/* Step 1: Basic Info */}
             {(isLogin || step === 1) && (
               <div>
                 <div className="mb-4">
                   <label
                     htmlFor="email"
-                    className="mb-1 block text-sm font-medium text-black"
+                    className="mb-1 block text-sm font-medium text-white/90"
                   >
                     Email
                   </label>
@@ -280,7 +272,7 @@ export default function LoginPage() {
                     onChange={(e) => setEmail(e.target.value)}
                     onKeyPress={handleKeyPress}
                     placeholder="Enter your email address"
-                    className="w-full rounded-lg border border-gray-200 p-2 placeholder:text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 p-2.5 text-sm text-white placeholder-white/40 backdrop-blur-md focus:border-[#00f4a2] focus:outline-none focus:ring-1 focus:ring-[#00f4a2]"
                   />
                 </div>
 
@@ -288,7 +280,7 @@ export default function LoginPage() {
                   <div className="mb-4">
                     <label
                       htmlFor="username"
-                      className="mb-1 block text-sm font-medium text-black"
+                      className="mb-1 block text-sm font-medium text-white/90"
                     >
                       Username
                     </label>
@@ -299,7 +291,7 @@ export default function LoginPage() {
                       onChange={(e) => setUsername(e.target.value)}
                       onKeyPress={handleKeyPress}
                       placeholder="Choose a username"
-                      className="w-full rounded-lg border border-gray-200 p-2 placeholder:text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+                      className="w-full rounded-lg border border-white/10 bg-white/5 p-2.5 text-sm text-white placeholder-white/40 backdrop-blur-md focus:border-[#00f4a2] focus:outline-none focus:ring-1 focus:ring-[#00f4a2]"
                     />
                   </div>
                 )}
@@ -307,7 +299,7 @@ export default function LoginPage() {
                 <div className="mb-2">
                   <label
                     htmlFor="password"
-                    className="mb-1 block text-sm font-medium text-black"
+                    className="mb-1 block text-sm font-medium text-white/90"
                   >
                     Password
                   </label>
@@ -318,7 +310,7 @@ export default function LoginPage() {
                     onChange={(e) => setPassword(e.target.value)}
                     onKeyPress={handleKeyPress}
                     placeholder="Enter your password"
-                    className="w-full rounded-lg border border-gray-200 p-2 placeholder:text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 p-2.5 text-sm text-white placeholder-white/40 backdrop-blur-md focus:border-[#00f4a2] focus:outline-none focus:ring-1 focus:ring-[#00f4a2]"
                   />
                 </div>
 
@@ -326,7 +318,7 @@ export default function LoginPage() {
                   <div className="mb-4 text-right">
                     <button
                       onClick={() => doNavigate("/forgot-password")}
-                      className="text-sm text-gray-600 hover:text-black transition-colors"
+                      className="text-sm text-white/60 transition-colors hover:text-[#00f4a2]"
                     >
                       Forgot password?
                     </button>
@@ -336,19 +328,16 @@ export default function LoginPage() {
                 <button
                   onClick={isLogin ? handleSubmit : handleNext}
                   disabled={loading || !isFormValid}
-                  className={`my-4 w-full rounded-full py-2.5 text-sm text-white transition-colors ${
-                    loading
-                      ? "cursor-not-allowed bg-gray-400"
-                      : isFormValid
-                      ? "bg-black hover:bg-gray-800"
-                      : "cursor-not-allowed bg-gray-400"
+                  className={`my-4 w-full rounded-full py-2.5 text-sm font-medium transition-colors ${
+                    loading || !isFormValid
+                      ? "cursor-not-allowed bg-[#1f2933]/70 text-white/60"
+                      : "bg-[#00f4a2] text-black shadow-lg shadow-[#00ffcc40] hover:bg-[#00d68f]"
                   }`}
                 >
                   {loading ? (
                     <span className="flex items-center justify-center">
                       <svg
-                        className="mr-2 h-4 w-4 animate-spin text-white"
-                        xmlns="http://www.w3.org/2000/svg"
+                        className="mr-2 h-4 w-4 animate-spin"
                         fill="none"
                         viewBox="0 0 24 24"
                       >
@@ -359,14 +348,14 @@ export default function LoginPage() {
                           r="10"
                           stroke="currentColor"
                           strokeWidth="4"
-                        ></circle>
+                        />
                         <path
                           className="opacity-75"
                           fill="currentColor"
                           d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                        ></path>
+                        />
                       </svg>
-                      Logging in...
+                      {isLogin ? "Logging in..." : "Processing..."}
                     </span>
                   ) : isLogin ? (
                     "Log in"
@@ -376,16 +365,14 @@ export default function LoginPage() {
                 </button>
 
                 <div className="text-center">
-                  <span className="text-sm text-gray-600">
-                    {isLogin
-                      ? "Don't have an account? "
-                      : "Already have an account? "}
+                  <span className="text-sm text-white/60">
+                    {isLogin ? "Don't have an account? " : "Already have an account? "}
                     <button
                       onClick={() => {
                         setIsLogin(!isLogin);
                         resetForm();
                       }}
-                      className="font-medium text-black underline"
+                      className="font-medium text-[#00f4a2] underline transition-colors hover:no-underline hover:text-[#00ffcc]"
                     >
                       {isLogin ? "Sign up" : "Log in"}
                     </button>
@@ -394,21 +381,20 @@ export default function LoginPage() {
               </div>
             )}
 
-            {/* Step 2: Additional Info */}
             {!isLogin && step === 2 && (
               <div>
                 <button
                   onClick={handleBack}
-                  className="mb-4 flex items-center gap-2 text-sm text-gray-600 hover:text-black transition-colors"
+                  className="mb-4 flex items-center gap-2 text-sm text-white/60 transition-colors hover:text-[#00f4a2]"
                 >
-                  <ArrowLeft className="w-4 h-4" />
+                  <ArrowLeft className="h-4 w-4" />
                   Back
                 </button>
 
                 <div className="mb-4">
                   <label
                     htmlFor="degree"
-                    className="mb-1 block text-sm font-medium text-black"
+                    className="mb-1 block text-sm font-medium text-white/90"
                   >
                     Degree
                   </label>
@@ -416,7 +402,7 @@ export default function LoginPage() {
                     id="degree"
                     value={degree}
                     onChange={(e) => setDegree(e.target.value)}
-                    className="w-full rounded-lg border border-gray-200 p-2 text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 p-2.5 text-sm text-white backdrop-blur-md focus:border-[#00f4a2] focus:outline-none focus:ring-1 focus:ring-[#00f4a2]"
                   >
                     <option value="">Select your degree</option>
                     <option value="bachelors">Bachelors</option>
@@ -427,7 +413,7 @@ export default function LoginPage() {
                 <div className="mb-4">
                   <label
                     htmlFor="course"
-                    className="mb-1 block text-sm font-medium text-black"
+                    className="mb-1 block text-sm font-medium text-white/90"
                   >
                     Area of Study
                   </label>
@@ -438,16 +424,16 @@ export default function LoginPage() {
                     onChange={(e) => setCourse(e.target.value)}
                     onKeyPress={handleKeyPress}
                     placeholder="e.g., Computer Science"
-                    className="w-full rounded-lg border border-gray-200 p-2 placeholder:text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+                    className="w-full rounded-lg border border-white/10 bg-white/5 p-2.5 text-sm text-white placeholder-white/40 backdrop-blur-md focus:border-[#00f4a2] focus:outline-none focus:ring-1 focus:ring-[#00f4a2]"
                   />
                 </div>
 
                 <div className="mb-4">
                   <label
                     htmlFor="courseSearch"
-                    className="mb-1 block text-sm font-medium text-black"
+                    className="mb-1 block text-sm font-medium text-white/90"
                   >
-                    Courses Taken
+                    Courses Taken (Optional)
                   </label>
                   <div ref={searchRef} className="relative">
                     <input
@@ -460,18 +446,18 @@ export default function LoginPage() {
                       }}
                       onFocus={() => setShowSuggestions(true)}
                       placeholder="Search and add courses..."
-                      className="w-full rounded-lg border border-gray-200 p-2 placeholder:text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+                      className="w-full rounded-lg border border-white/10 bg-white/5 p-2.5 text-sm text-white placeholder-white/40 backdrop-blur-md focus:border-[#00f4a2] focus:outline-none focus:ring-1 focus:ring-[#00f4a2]"
                     />
 
                     {showSuggestions &&
                       courseSearch &&
                       filteredCourses.length > 0 && (
-                        <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                          {filteredCourses.slice(0, 8).map((courseName) => (
+                        <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-lg border border-white/10 bg-[#020617] shadow-xl shadow-black/50">
+                          {filteredCourses.map((courseName) => (
                             <button
                               key={courseName}
                               onClick={() => addCourse(courseName)}
-                              className="w-full text-left px-3 py-2 hover:bg-gray-100 text-sm transition-colors"
+                              className="w-full px-3 py-2 text-left text-sm text-white/80 transition-colors hover:bg-white/5"
                             >
                               {courseName}
                             </button>
@@ -485,15 +471,15 @@ export default function LoginPage() {
                       {coursesTaken.map((courseName) => (
                         <span
                           key={courseName}
-                          className="inline-flex items-center gap-1 bg-black text-white px-3 py-1 rounded-full text-xs"
+                          className="inline-flex items-center gap-1 rounded-full border border-[#00f4a2]/40 bg-[#003d47] px-3 py-1 text-xs text-[#00f4a2] shadow shadow-[#00ffcc40]"
                         >
                           {courseName}
                           <button
                             onClick={() => removeCourse(courseName)}
-                            className="hover:bg-white/20 rounded-full p-0.5 transition-colors"
+                            className="rounded-full p-0.5 transition-colors hover:bg:white/10 hover:bg-white/10"
                           >
                             <svg
-                              className="w-3 h-3"
+                              className="h-3 w-3"
                               fill="none"
                               stroke="currentColor"
                               viewBox="0 0 24 24"
@@ -515,19 +501,16 @@ export default function LoginPage() {
                 <button
                   onClick={handleSubmit}
                   disabled={loading || !isFormValid}
-                  className={`my-4 w-full rounded-full py-2.5 text-sm text-white transition-colors ${
-                    loading
-                      ? "cursor-not-allowed bg-gray-400"
-                      : isFormValid
-                      ? "bg-black hover:bg-gray-800"
-                      : "cursor-not-allowed bg-gray-400"
+                  className={`my-4 w-full rounded-full py-2.5 text-sm font-medium transition-colors ${
+                    loading || !isFormValid
+                      ? "cursor-not-allowed bg-[#1f2933]/70 text-white/60"
+                      : "bg-[#00f4a2] text-black shadow-lg shadow-[#00ffcc40] hover:bg-[#00d68f]"
                   }`}
                 >
                   {loading ? (
                     <span className="flex items-center justify-center">
                       <svg
-                        className="mr-2 h-4 w-4 animate-spin text-white"
-                        xmlns="http://www.w3.org/2000/svg"
+                        className="mr-2 h-4 w-4 animate-spin"
                         fill="none"
                         viewBox="0 0 24 24"
                       >
@@ -538,12 +521,12 @@ export default function LoginPage() {
                           r="10"
                           stroke="currentColor"
                           strokeWidth="4"
-                        ></circle>
+                        />
                         <path
                           className="opacity-75"
                           fill="currentColor"
                           d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                        ></path>
+                        />
                       </svg>
                       Creating account...
                     </span>
@@ -553,14 +536,14 @@ export default function LoginPage() {
                 </button>
 
                 <div className="text-center">
-                  <span className="text-sm text-gray-600">
+                  <span className="text-sm text-white/60">
                     Already have an account?{" "}
                     <button
                       onClick={() => {
                         setIsLogin(true);
                         resetForm();
                       }}
-                      className="font-medium text-black underline"
+                      className="font-medium text-[#00f4a2] underline transition-colors hover:no-underline hover:text-[#00ffcc]"
                     >
                       Log in
                     </button>
@@ -572,85 +555,97 @@ export default function LoginPage() {
         </div>
       </div>
 
-      {/* Right Side */}
+      {/* Right Side - Landing Page */}
       <div className="hidden py-[3vh] pr-[3vh] lg:block lg:w-1/2">
-        <div className="relative h-full rounded-3xl bg-black overflow-hidden">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-black rounded-full mix-blend-multiply filter blur-3xl opacity-20"></div>
-          <div className="absolute bottom-0 left-0 w-96 h-96 bg-black rounded-full mix-blend-multiply filter blur-3xl opacity-20"></div>
+        <div className="relative h-full overflow-hidden rounded-3xl bg-gradient-to-br from-[#001f2b] via-[#003846] to-[#000b10]">
+          <div className="absolute top-0 right-0 h-96 w-96 rounded-full bg-[#00f5d4] mix-blend-screen blur-[110px] opacity-30 animate-pulse" />
+          <div
+            className="absolute bottom-0 left-0 h-96 w-96 rounded-full bg-[#00d4ff] mix-blend-screen blur-[110px] opacity-30 animate-pulse"
+            style={{ animationDelay: "1s" }}
+          />
+          <div
+            className="absolute top-1/2 left-1/2 h-80 w-80 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#39ff14] mix-blend-screen blur-[120px] opacity-20 animate-pulse"
+            style={{ animationDelay: "2s" }}
+          />
 
-          <div className="relative flex h-full flex-col justify-between p-12 z-10">
-            <div className="flex-1 flex flex-col items-center justify-center space-y-8">
-              <div className="text-center space-y-4 mb-8">
-                <div className="inline-flex items-center justify-center w-20 h-20 bg-white rounded-3xl shadow-2xl mb-6">
-                  <Sparkles className="w-10 h-10 text-black" />
-                </div>
-                <h1 className="text-4xl font-bold text-white drop-shadow-lg">
-                  Welcome to the Future
+          <div className="relative z-10 flex h-full flex-col justify-between p-12">
+            <div className="inline-flex items-center gap-2 self-start rounded-full border border-[#00ffcc40] bg-white/5 px-4 py-2 backdrop-blur-md">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-[#00f4a2]" />
+              <span className="text-xs font-bold uppercase tracking-wider text-[#e5f9ff]">
+                Your Academic Journey Starts Here
+              </span>
+            </div>
+
+            <div className="flex flex-1 flex-col justify-center space-y-8">
+              <div className="space-y-4 text-left">
+                <h1 className="text-5xl font-bold leading-tight text-white drop-shadow-[0_0_35px_rgba(0,255,204,0.35)]">
+                  Your Intelligent Course Planning Companion
                 </h1>
-                <p className="text-xl text-gray-200 max-w-md">
-                  Experience next-generation AI conversations
+                <p className="max-w-lg text-xl text-white/90">
+                  Navigate your academic path with AI-powered insights, personalized
+                  recommendations, and smart course comparisons.
                 </p>
               </div>
 
-              <div className="w-full max-w-xl space-y-4">
-                <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-6 shadow-2xl">
-                  <div className="space-y-4">
-                    <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center flex-shrink-0">
-                        <MessageSquare className="w-5 h-5 text-black" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="bg-white rounded-xl p-3 shadow-lg">
-                          <p className="text-sm text-gray-800">
-                            How can I help you today?
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start gap-3 ml-10">
-                      <div className="flex-1">
-                        <div className="bg-black rounded-xl p-3 shadow-lg">
-                          <p className="text-sm text-white">
-                            Tell me about quantum computing
-                          </p>
-                        </div>
-                      </div>
-                      <div className="w-10 h-10 bg-gray-300 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span className="text-sm font-bold text-gray-800">
-                          U
-                        </span>
-                      </div>
-                    </div>
+              <div className="mt-8 grid grid-cols-2 gap-4">
+                {/* Feature 1 */}
+                <div className="group rounded-2xl border border-[#00ffcc20] bg-[#0a1a1f]/70 p-5 shadow-xl shadow-[#00ffcc15] backdrop-blur-xl transition-all duration-300 hover:bg-[#0a1a1f]/90 hover:shadow-[#00ffcc40]">
+                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[#00343d] text-white text-3xl shadow-[0_0_12px_#00f4a2] transition-transform group-hover:scale-110">
+                    🧠
                   </div>
+                  <h3 className="mb-1 text-sm font-semibold text-white">
+                    Course Planning Companion
+                  </h3>
+                  <p className="text-xs leading-relaxed text-white/80">
+                    Build your perfect semester schedule with intelligent suggestions
+                  </p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 text-center">
-                    <Zap className="w-6 h-6 mx-auto mb-2 text-white" />
-                    <p className="text-xs font-medium text-white">Fast</p>
+                {/* Feature 2 */}
+                <div className="group rounded-2xl border border-[#00ffcc20] bg-[#0a1a1f]/70 p-5 shadow-xl shadow-[#00ffcc15] backdrop-blur-xl transition-all duration-300 hover:bg-[#0a1a1f]/90 hover:shadow-[#00ffcc40]">
+                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[#00343d] text-white text-3xl shadow-[0_0_12px_#00f4a2] transition-transform group-hover:scale-110">
+                    📊
                   </div>
-                  <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 text-center">
-                    <Shield className="w-6 h-6 mx-auto mb-2 text-white" />
-                    <p className="text-xs font-medium text-white">Secure</p>
+                  <h3 className="mb-1 text-sm font-semibold text-white">
+                    Compare Courses
+                  </h3>
+                  <p className="text-xs leading-relaxed text-white/80">
+                    Side-by-side analysis to find your ideal classes
+                  </p>
+                </div>
+
+                {/* Feature 3 */}
+                <div className="group rounded-2xl border border-[#00ffcc20] bg-[#0a1a1f]/70 p-5 shadow-xl shadow-[#00ffcc15] backdrop-blur-xl transition-all duration-300 hover:bg-[#0a1a1f]/90 hover:shadow-[#00ffcc40]">
+                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[#00343d] text-white text-3xl shadow-[0_0_12px_#00f4a2] transition-transform group-hover:scale-110">
+                    🧑‍🏫
                   </div>
-                  <div className="bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl p-4 text-center">
-                    <Check className="w-6 h-6 mx-auto mb-2 text-white" />
-                    <p className="text-xs font-medium text-white">Reliable</p>
+                  <h3 className="mb-1 text-sm font-semibold text-white">
+                    Get to Know Your Professors
+                  </h3>
+                  <p className="text-xs leading-relaxed text-white/80">
+                    Discover teaching styles and student insights
+                  </p>
+                </div>
+
+                {/* Feature 4 */}
+                <div className="group rounded-2xl border border-[#00ffcc20] bg-[#0a1a1f]/70 p-5 shadow-xl shadow-[#00ffcc15] backdrop-blur-xl transition-all duration-300 hover:bg-[#0a1a1f]/90 hover:shadow-[#00ffcc40]">
+                  <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-[#00343d] text-white text-3xl shadow-[0_0_12px_#00f4a2] transition-transform group-hover:scale-110">
+                    💡
                   </div>
+                  <h3 className="mb-1 text-sm font-semibold text-white">
+                    Tailored Course Recommendations
+                  </h3>
+                  <p className="text-xs leading-relaxed text-white/80">
+                    AI-powered suggestions based on your interests and goals
+                  </p>
                 </div>
               </div>
             </div>
 
             <div className="space-y-3">
-              <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur-sm border border-white/20 rounded-full px-4 py-2">
-                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                <span className="text-xs font-bold uppercase tracking-wider text-white">
-                  Now Available
-                </span>
-              </div>
-              <h3 className="text-lg font-semibold text-white leading-relaxed">
-                Join thousands of users experiencing intelligent conversations.
+              <h3 className="text-lg font-semibold leading-relaxed text-white/90">
+                Join students who are making smarter academic decisions with
+                AI-powered course insights.
               </h3>
             </div>
           </div>
