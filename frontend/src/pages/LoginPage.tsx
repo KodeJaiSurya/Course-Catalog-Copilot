@@ -1,6 +1,13 @@
-import type React from "react";
-import { useState, useEffect, useRef } from "react";
-import { ArrowLeft } from "lucide-react";
+import Fuse from "fuse.js";
+import React, { useState, useEffect, useRef } from "react";
+import {
+  MessageSquare,
+  Sparkles,
+  Zap,
+  Shield,
+  Check,
+  ArrowLeft,
+} from "lucide-react";
 
 const API_BASE_URL = "http://localhost:8000";
 
@@ -16,18 +23,49 @@ export default function LoginPage() {
   // Step 2 fields
   const [degree, setDegree] = useState("");
   const [course, setCourse] = useState("");
-  const [coursesTaken, setCoursesTaken] = useState<string[]>([]);
+  const [coursesTaken, setCoursesTaken] = useState([]);
   const [courseSearch, setCourseSearch] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
-  const [availableCourses, setAvailableCourses] = useState<string[]>([]);
 
+  const [availableCourses, setAvailableCourses] = useState([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [isFormValid, setIsFormValid] = useState(false);
 
-  const searchRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef(null);
+  const [fuse, setFuse] = useState(null);
 
-  // Fetch all available courses
+  // Normalize backend response into string[] of titles
+  const normalizeCourseData = (data) => {
+    if (!data) return [];
+    // Case A: data is an array of strings
+    if (Array.isArray(data) && data.length > 0 && typeof data[0] === "string") {
+      return data;
+    }
+    // Case B: { titles: [...] }
+    if (data && Array.isArray(data.titles)) {
+      return data.titles;
+    }
+    // Case C: array of objects with .title (or name)
+    if (Array.isArray(data) && data.length > 0 && typeof data[0] === "object") {
+      // try common keys
+      const key = data[0].title ? "title" : data[0].name ? "name" : null;
+      if (key) {
+        return data.map((d) => d[key]).filter(Boolean);
+      }
+      // fallback: try to stringify each object (not ideal)
+      console.warn(
+        "[normalizeCourseData] unexpected object shape for cleaned_titles; falling back to JSON strings"
+      );
+      return data.map((d) => JSON.stringify(d));
+    }
+
+    // unknown shape fallback
+    console.warn("[normalizeCourseData] unexpected response shape", data);
+    return [];
+  };
+
+  // Fetch courses from API and initialize Fuse
   useEffect(() => {
     const fetchCourses = async () => {
       try {
@@ -35,7 +73,15 @@ export default function LoginPage() {
         if (!response.ok) throw new Error("Failed to fetch courses");
 
         const data = await response.json();
-        setAvailableCourses(data);
+        const titles = normalizeCourseData(data);
+        setAvailableCourses(titles);
+
+        // initialize Fuse with array of strings
+        const fuseInstance = new Fuse(titles, {
+          threshold: 0.35,
+          minMatchCharLength: 2,
+        });
+        setFuse(fuseInstance);
       } catch (err) {
         console.error("Error fetching courses:", err);
       }
@@ -44,22 +90,18 @@ export default function LoginPage() {
     fetchCourses();
   }, []);
 
-  // Close suggestions when clicking outside
+  // Close suggestions when clicking outside (searchRef contains input + suggestions)
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (
-        searchRef.current &&
-        !searchRef.current.contains(event.target as Node)
-      ) {
+    const handleClickOutside = (event) => {
+      if (searchRef.current && !searchRef.current.contains(event.target)) {
         setShowSuggestions(false);
       }
     };
-
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Validate form
+  // Validate form based on current step
   useEffect(() => {
     if (isLogin) {
       setIsFormValid(!!email && !!password);
@@ -72,27 +114,32 @@ export default function LoginPage() {
     }
   }, [email, username, password, degree, course, isLogin, step]);
 
-  const doNavigate = (path: string) => {
+  const doNavigate = (path) => {
     window.location.assign(path);
   };
 
-  const throwUIError = (msg: string) => {
+  const throwUIError = (msg) => {
     setError(msg);
     setLoading(false);
   };
 
-  const filteredCourses =
-    courseSearch.trim() !== ""
-      ? availableCourses
-          .filter(
-            (c) =>
-              c.toLowerCase().includes(courseSearch.toLowerCase()) &&
-              !coursesTaken.includes(c)
-          )
-          .slice(0, 8)
-      : [];
+  // Filter courses for autocomplete using Fuse if available, otherwise fallback to simple includes
+  let filteredCourses = [];
+  if (courseSearch.trim() !== "") {
+    if (fuse) {
+      filteredCourses = fuse
+        .search(courseSearch)
+        .map((result) => result.item)
+        .filter((c) => !coursesTaken.includes(c));
+    } else {
+      const q = courseSearch.toLowerCase();
+      filteredCourses = availableCourses
+        .filter((c) => c.toLowerCase().includes(q) && !coursesTaken.includes(c))
+        .slice(0, 8);
+    }
+  }
 
-  const addCourse = (courseName: string) => {
+  const addCourse = (courseName) => {
     if (!coursesTaken.includes(courseName)) {
       setCoursesTaken([...coursesTaken, courseName]);
       setCourseSearch("");
@@ -100,7 +147,7 @@ export default function LoginPage() {
     }
   };
 
-  const removeCourse = (courseName: string) => {
+  const removeCourse = (courseName) => {
     setCoursesTaken(coursesTaken.filter((c) => c !== courseName));
   };
 
@@ -116,14 +163,12 @@ export default function LoginPage() {
     setError("");
   };
 
-  // 🔥 EXACT SAME BACKEND LOGIC AS YOUR FIRST CODE
   const handleSubmit = async () => {
     setError("");
     setLoading(true);
 
     try {
       if (isLogin) {
-        // LOGIN: /auth/token (x-www-form-urlencoded)
         const formData = new URLSearchParams();
         formData.append("username", email);
         formData.append("password", password);
@@ -141,10 +186,8 @@ export default function LoginPage() {
 
         const data = await response.json();
         localStorage.setItem("token", data.access_token);
-
         doNavigate("/home");
       } else {
-        // REGISTER: /auth/register (JSON)
         const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -164,7 +207,7 @@ export default function LoginPage() {
           return;
         }
 
-        // AUTO LOGIN
+        // Auto-login after registration
         const formData = new URLSearchParams();
         formData.append("username", email);
         formData.append("password", password);
@@ -182,7 +225,6 @@ export default function LoginPage() {
 
         const data = await loginResponse.json();
         localStorage.setItem("token", data.access_token);
-
         doNavigate("/home");
       }
     } catch (err) {
@@ -192,10 +234,13 @@ export default function LoginPage() {
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyPress = (e) => {
     if (e.key === "Enter" && isFormValid) {
-      if (!isLogin && step === 1) handleNext();
-      else handleSubmit();
+      if (!isLogin && step === 1) {
+        handleNext();
+      } else {
+        handleSubmit();
+      }
     }
   };
 
@@ -366,7 +411,9 @@ export default function LoginPage() {
 
                 <div className="text-center">
                   <span className="text-sm text-white/60">
-                    {isLogin ? "Don't have an account? " : "Already have an account? "}
+                    {isLogin
+                      ? "Don't have an account? "
+                      : "Already have an account? "}
                     <button
                       onClick={() => {
                         setIsLogin(!isLogin);
@@ -582,8 +629,8 @@ export default function LoginPage() {
                   Your Intelligent Course Planning Companion
                 </h1>
                 <p className="max-w-lg text-xl text-white/90">
-                  Navigate your academic path with AI-powered insights, personalized
-                  recommendations, and smart course comparisons.
+                  Navigate your academic path with AI-powered insights,
+                  personalized recommendations, and smart course comparisons.
                 </p>
               </div>
 
@@ -597,7 +644,8 @@ export default function LoginPage() {
                     Course Planning Companion
                   </h3>
                   <p className="text-xs leading-relaxed text-white/80">
-                    Build your perfect semester schedule with intelligent suggestions
+                    Build your perfect semester schedule with intelligent
+                    suggestions
                   </p>
                 </div>
 

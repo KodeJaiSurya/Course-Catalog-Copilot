@@ -164,7 +164,7 @@ def search_all_endpoint(
     """
     Smart search - automatically searches professors or courses based on query
     """
-    results = search_all(query_data.query, query_data.limit, db)
+    results = search_both(query_data.query, query_data.limit, db)
 
     return QueryResponse(
         query=query_data.query,
