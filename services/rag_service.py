@@ -188,11 +188,11 @@ def search_courses(query: str):
 
     try:
         # Two enhanced search variations
-        enhanced_query1 = f"{query} bnrordsp.neu.edu"
-        enhanced_query2 = f"{query} Search Neu"
+        enhanced_query1 = f"{query} site:bnrordsp.neu.edu"
+        enhanced_query2 = f"{query} site:searchneu.com"
         all_results = []
         for enhanced_query in [enhanced_query1, enhanced_query2]:
-            search_results = duckduckgo_search(enhanced_query, max_results=2)
+            search_results = duckduckgo_search(enhanced_query, max_results=1)
             all_results.extend(search_results)
 
         # Remove duplicates (based on link)
@@ -243,8 +243,8 @@ def search_both(query: str):
     }
 
     try:
-        enhanced_query = f"{query} Search Neu"
-        search_results = duckduckgo_search(enhanced_query, max_results=5)
+        enhanced_query = f"{query} site:searchneu.com"
+        search_results = duckduckgo_search(enhanced_query, max_results=2)
         # Process results
         for result in search_results[:2]:  # Top 3 results
             source = {
@@ -259,8 +259,8 @@ def search_both(query: str):
             results["sources"].append(source)
         # Create summary from snippets
         if results["sources"]:
-            snippets = [s['snippet']
-                        for s in results["sources"] if s['snippet']]
+            snippets = [s['content']
+                        for s in results["sources"] if s['content']]
             results["summary"] = " ".join(
                 snippets[:2])  # Combine first 2 snippets
 

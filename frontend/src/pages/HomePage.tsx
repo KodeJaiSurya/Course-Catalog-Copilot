@@ -15,7 +15,9 @@ import {
   Menu,
   User,
   MoreVertical,
-  Settings,
+  CircleUser,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 
 const API_BASE_URL = "http://localhost:8000";
@@ -46,15 +48,13 @@ interface ConversationWithMessages extends Conversation {
 
 // Simple Markdown parser for bold text
 const parseMarkdown = (text: string) => {
-  // Convert [^1^] to [1] and [^1^]: to [1]:
   let cleanedText = text
-    .replace(/\[\^(\d+)\^\]/g, "[$1]") // [^1^] becomes [1]
-    .replace(/\[\^(\d+)\^\]:/g, "[$1]:"); // [^1^]: becomes [1]:
+    .replace(/\[\^(\d+)\^\]/g, "[$1]")
+    .replace(/\[\^(\d+)\^\]:/g, "[$1]:");
 
-  const parts = [];
+  const parts: { type: string; content: string }[] = [];
   let lastIndex = 0;
 
-  // Combined regex for bold, italic, and inline code
   const regex = /(\*\*.*?\*\*|\*.*?\*|`.*?`)/g;
   let match;
 
@@ -101,11 +101,11 @@ const MessageContent = ({ content }: { content: string }) => {
   const parts = parseMarkdown(content);
 
   return (
-    <p className="text-base leading-relaxed whitespace-pre-wrap">
+    <p className="text-base leading-relaxed whitespace-pre-wrap text-slate-50">
       {parts.map((part, index) => {
         if (part.type === "bold") {
           return (
-            <strong key={index} className="font-bold">
+            <strong key={index} className="font-semibold">
               {part.content}
             </strong>
           );
@@ -128,11 +128,8 @@ export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
-  const [showUserMenu, setShowUserMenu] = useState(false);
-  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const userMenuRef = useRef<HTMLDivElement>(null);
-  const plusMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadUser();
@@ -144,21 +141,9 @@ export default function HomePage() {
   }, [selectedConversation?.messages]);
 
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleClickOutside = () => {
       if (openMenuId !== null) {
         setOpenMenuId(null);
-      }
-      if (
-        userMenuRef.current &&
-        !userMenuRef.current.contains(e.target as Node)
-      ) {
-        setShowUserMenu(false);
-      }
-      if (
-        plusMenuRef.current &&
-        !plusMenuRef.current.contains(e.target as Node)
-      ) {
-        setShowPlusMenu(false);
       }
     };
     document.addEventListener("click", handleClickOutside);
@@ -193,7 +178,6 @@ export default function HomePage() {
       headers,
     });
 
-    // Handle 401 Unauthorized (expired/invalid token)
     if (response.status === 401) {
       setSessionExpired(true);
       throw new Error("Session expired");
@@ -213,12 +197,14 @@ export default function HomePage() {
     try {
       const userData = await apiFetch("/users/me");
       setUser(userData);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to load user:", error);
       if (error.message !== "Session expired") {
         localStorage.removeItem("token");
         window.location.href = "/login";
       }
+    } finally {
+      setInitialLoading(false);
     }
   };
 
@@ -239,8 +225,26 @@ export default function HomePage() {
       });
       setConversations([newConv, ...conversations]);
       setSelectedConversation({ ...newConv, messages: [] });
+      setMessage("");
     } catch (error) {
       console.error("Failed to create conversation:", error);
+    }
+  };
+
+  const startConversationWithPrompt = async (
+    title: string,
+    initialPrompt: string
+  ) => {
+    try {
+      const newConv = await apiFetch("/conversations", {
+        method: "POST",
+        body: JSON.stringify({ title }),
+      });
+      setConversations([newConv, ...conversations]);
+      setSelectedConversation({ ...newConv, messages: [] });
+      setMessage(initialPrompt);
+    } catch (error) {
+      console.error("Failed to start quick action conversation:", error);
     }
   };
 
@@ -248,6 +252,7 @@ export default function HomePage() {
     try {
       const conv = await apiFetch(`/conversations/${id}`);
       setSelectedConversation(conv);
+      setMessage("");
     } catch (error) {
       console.error("Failed to load conversation:", error);
     }
@@ -363,6 +368,7 @@ export default function HomePage() {
       setConversations(conversations.filter((c) => c.id !== id));
       if (selectedConversation?.id === id) {
         setSelectedConversation(null);
+        setMessage("");
       }
       setOpenMenuId(null);
     } catch (error) {
@@ -404,35 +410,37 @@ export default function HomePage() {
     window.location.href = "/login";
   };
 
-  const goToProfile = () => {
+  const handleGoToSettings = () => {
     window.location.href = "/profile";
   };
 
-  const handlePrefixSelect = (prefix: string) => {
-    setMessage(prefix);
-    setShowPlusMenu(false);
-  };
+  const recentConversations = [...conversations]
+    .sort(
+      (a, b) =>
+        new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+    )
+    .slice(0, 5);
 
   // Session expired overlay
   if (sessionExpired) {
     return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-2xl p-8 max-w-md mx-4 shadow-2xl">
+      <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-md mx-4 shadow-2xl">
           <div className="text-center">
-            <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-red-100 flex items-center justify-center">
-              <LogOut className="h-8 w-8 text-red-600" />
+            <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-emerald-500/10 flex items-center justify-center">
+              <AlertCircle className="h-8 w-8 text-emerald-400" />
             </div>
-            <h2 className="text-2xl font-bold mb-2 text-gray-900">
-              Session Expired
+            <h2 className="text-2xl font-semibold mb-2 text-slate-50">
+              Session expired
             </h2>
-            <p className="text-gray-600 mb-6">
-              Your session has expired. Please log in again to continue.
+            <p className="text-slate-400 mb-6">
+              Your session has ended. Please log in again to continue.
             </p>
             <Button
               onClick={handleRefresh}
-              className="w-full bg-black hover:bg-gray-800 text-white rounded-full py-3"
+              className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-full py-3"
             >
-              Log In Again
+              Log in again
             </Button>
           </div>
         </div>
@@ -440,21 +448,35 @@ export default function HomePage() {
     );
   }
 
+  if (initialLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <Loader2 className="h-8 w-8 text-emerald-400 animate-spin" />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-screen bg-white">
+    <div className="flex min-h-screen items-stretch bg-slate-950 text-slate-50">
       {/* Sidebar */}
       <div
         className={`${
           sidebarOpen ? "w-64" : "w-0"
-        } transition-all duration-300 bg-white border-r border-gray-200 flex flex-col overflow-hidden`}
+        } transition-all duration-300 bg-slate-900/80 border-r border-slate-700 flex flex-col overflow-hidden shadow-lg shadow-slate-900/40`}
       >
-        <div className="p-3 border-b border-gray-200">
+        <div className="px-4 pt-4 pb-3 border-b border-slate-700 flex items-center justify-between">
+          <span className="text-xs font-semibold tracking-[0.2em] text-emerald-400 uppercase">
+            Course Co-Pilot
+          </span>
+        </div>
+
+        <div className="p-3 border-b border-slate-700">
           <Button
             onClick={createNewConversation}
-            className="w-full bg-black hover:bg-gray-800 text-white rounded-full"
+            className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-full font-medium"
           >
             <Plus className="h-4 w-4 mr-2" />
-            New Chat
+            New chat
           </Button>
         </div>
 
@@ -467,12 +489,13 @@ export default function HomePage() {
                     <Input
                       value={editTitle}
                       onChange={(e) => setEditTitle(e.target.value)}
-                      className="h-8 text-sm"
+                      className="h-8 text-xs bg-slate-800 border-slate-700 text-slate-50 rounded-xl"
                       autoFocus
                     />
                     <Button
                       size="sm"
                       variant="ghost"
+                      className="text-emerald-400 hover:bg-slate-800 rounded-full"
                       onClick={() => saveTitle(conv.id)}
                     >
                       <Check className="h-4 w-4" />
@@ -480,6 +503,7 @@ export default function HomePage() {
                     <Button
                       size="sm"
                       variant="ghost"
+                      className="text-slate-400 hover:bg-slate-800 rounded-full"
                       onClick={() => setEditingId(null)}
                     >
                       <X className="h-4 w-4" />
@@ -487,24 +511,24 @@ export default function HomePage() {
                   </div>
                 ) : (
                   <div
-                    className={`flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors ${
+                    className={`flex items-center justify-between px-3 py-2 rounded-xl cursor-pointer text-sm transition-colors ${
                       selectedConversation?.id === conv.id
-                        ? "bg-gray-100"
-                        : "hover:bg-gray-50"
+                        ? "bg-slate-800 border border-slate-600"
+                        : "hover:bg-slate-800/60"
                     }`}
                     onClick={() => selectConversation(conv.id)}
                   >
                     <span
-                      className="text-sm truncate flex-1"
+                      className="truncate flex-1 text-slate-100"
                       title={conv.title}
                     >
                       {truncateTitle(conv.title)}
                     </span>
-                    <div className="relative">
+                    <div className="relative ml-1">
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100"
+                        className="h-7 w-7 p-0 opacity-0 group-hover:opacity-100 text-slate-400 hover:text-slate-100 hover:bg-slate-700 rounded-full"
                         onClick={(e) => {
                           e.stopPropagation();
                           setOpenMenuId(
@@ -516,11 +540,11 @@ export default function HomePage() {
                       </Button>
                       {openMenuId === conv.id && (
                         <div
-                          className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50"
+                          className="absolute right-0 mt-1 w-48 bg-slate-900 rounded-xl shadow-lg border border-slate-700 py-1 z-50"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center"
+                            className="w-full px-4 py-2 text-left text-xs hover:bg-slate-800 flex items-center text-slate-100 rounded-xl"
                             onClick={(e) => {
                               e.stopPropagation();
                               startEditing(conv);
@@ -530,7 +554,7 @@ export default function HomePage() {
                             Rename
                           </button>
                           <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center text-red-600"
+                            className="w-full px-4 py-2 text-left text-xs hover:bg-slate-800 flex items-center text-rose-400 rounded-xl"
                             onClick={(e) => {
                               e.stopPropagation();
                               deleteConv(conv.id);
@@ -549,78 +573,80 @@ export default function HomePage() {
           </div>
         </ScrollArea>
 
-        <div className="p-3 border-t border-gray-200">
-          <div className="relative" ref={userMenuRef}>
-            <div
-              className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 cursor-pointer"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowUserMenu(!showUserMenu);
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <div className="h-8 w-8 rounded-full bg-black flex items-center justify-center">
-                  <User className="h-4 w-4 text-white" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium">{user?.username}</p>
-                  <p className="text-xs text-gray-500">{user?.email}</p>
-                </div>
+        <div className="p-3 border-t border-slate-700">
+          <div className="bg-slate-800/50 rounded-xl p-2 space-y-1">
+            <div className="flex items-center gap-2 px-2 py-1.5">
+              <div className="h-8 w-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                <User className="h-4 w-4 text-emerald-400" />
               </div>
-              <Button size="sm" variant="ghost">
-                <MoreVertical className="h-4 w-4" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-100 truncate">
+                  {user?.username}
+                </p>
+                <p className="text-xs text-slate-500 truncate">{user?.email}</p>
+              </div>
+            </div>
+            <div className="flex gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="flex-1 text-slate-400 hover:text-slate-100 hover:bg-slate-700 rounded-xl h-8"
+                onClick={handleGoToSettings}
+              >
+                <CircleUser className="h-4 w-4 mr-1" />
+                <span className="text-xs">Profile</span>
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="flex-1 text-slate-400 hover:text-rose-400 hover:bg-slate-700 rounded-xl h-8"
+                onClick={handleLogout}
+              >
+                <LogOut className="h-4 w-4 mr-1" />
+                <span className="text-xs">Logout</span>
               </Button>
             </div>
-
-            {showUserMenu && (
-              <div className="absolute bottom-full left-0 right-0 mb-2 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                <button
-                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center"
-                  onClick={goToProfile}
-                >
-                  <Settings className="h-4 w-4 mr-2" />
-                  Profile Settings
-                </button>
-                <button
-                  className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center text-red-600"
-                  onClick={handleLogout}
-                >
-                  <LogOut className="h-4 w-4 mr-2" />
-                  Log Out
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </div>
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
-        <div className="border-b border-gray-200 bg-white p-4 flex items-center gap-3">
+        <div className="border-b border-slate-700 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 px-4 py-3 flex items-center gap-3 shadow-lg shadow-slate-900/40">
           <Button
             variant="ghost"
             size="sm"
+            className="text-slate-300 hover:bg-slate-800 rounded-full"
             onClick={() => setSidebarOpen(!sidebarOpen)}
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <h2 className="text-lg font-semibold">
-            {selectedConversation?.title || "ChatBot AI"}
-          </h2>
+          <div className="flex flex-col">
+            <p className="text-xs uppercase tracking-[0.2em] text-emerald-400 flex items-center gap-2">
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Your academic journey starts here
+            </p>
+            <h2 className="text-sm sm:text-base font-semibold text-slate-50">
+              {selectedConversation?.title || "Course Planning Copilot"}
+            </h2>
+          </div>
         </div>
 
         {selectedConversation ? (
           <>
-            <ScrollArea className="flex-1 bg-white">
+            <ScrollArea className="flex-1 bg-slate-950">
               <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
                 {selectedConversation.messages.length === 0 && !loading ? (
                   <div className="text-center py-12">
-                    <MessageSquare className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-                    <h3 className="text-2xl font-semibold mb-3">
-                      How can I help you today?
+                    <div className="mx-auto mb-4 h-16 w-16 rounded-full bg-emerald-500/10 flex items-center justify-center">
+                      <MessageSquare className="h-8 w-8 text-emerald-400" />
+                    </div>
+                    <h3 className="text-2xl font-semibold mb-3 text-slate-50">
+                      How can I help you plan your semester?
                     </h3>
-                    <p className="text-gray-500">
-                      Start a conversation by typing a message below
+                    <p className="text-slate-400">
+                      Ask about course combinations, prerequisites, or professor
+                      insights to get started.
                     </p>
                   </div>
                 ) : (
@@ -628,29 +654,27 @@ export default function HomePage() {
                     {selectedConversation.messages.map((msg) => (
                       <div key={msg.id}>
                         {msg.role === "user" ? (
-                          // User message - smaller, right aligned
                           <div className="flex justify-end">
                             <div className="flex gap-3 items-start max-w-[70%]">
-                              <div className="inline-block rounded-2xl px-5 py-3 bg-gray-200 text-gray-900">
+                              <div className="inline-block rounded-2xl px-5 py-3 bg-slate-800 border border-slate-700 text-slate-50 shadow-lg shadow-slate-900/40">
                                 <MessageContent content={msg.content} />
                               </div>
                               <div className="flex-shrink-0">
-                                <div className="h-8 w-8 rounded-full bg-gray-300 flex items-center justify-center">
-                                  <User className="h-4 w-4 text-gray-600" />
+                                <div className="h-8 w-8 rounded-full bg-slate-700 flex items-center justify-center">
+                                  <User className="h-4 w-4 text-slate-200" />
                                 </div>
                               </div>
                             </div>
                           </div>
                         ) : (
-                          // Assistant message - wider, left aligned
                           <div className="flex gap-3 items-start">
                             <div className="flex-shrink-0">
-                              <div className="h-8 w-8 rounded-full bg-black flex items-center justify-center">
-                                <Sparkles className="h-4 w-4 text-white" />
+                              <div className="h-8 w-8 rounded-full bg-emerald-500 flex items-center justify-center shadow-md shadow-emerald-500/40">
+                                <Sparkles className="h-4 w-4 text-slate-950" />
                               </div>
                             </div>
                             <div className="flex-1 max-w-full">
-                              <div className="inline-block rounded-2xl px-5 py-3 bg-white text-gray-800">
+                              <div className="inline-block rounded-2xl px-5 py-3 bg-slate-900/80 border border-slate-700 text-slate-50 shadow-lg shadow-slate-900/60">
                                 <MessageContent content={msg.content} />
                               </div>
                             </div>
@@ -662,22 +686,22 @@ export default function HomePage() {
                     {loading && (
                       <div className="flex gap-3 items-start">
                         <div className="flex-shrink-0">
-                          <div className="h-8 w-8 rounded-full bg-black flex items-center justify-center">
-                            <Sparkles className="h-4 w-4 text-white" />
+                          <div className="h-8 w-8 rounded-full bg-emerald-500 flex items-center justify-center shadow-md shadow-emerald-500/40">
+                            <Sparkles className="h-4 w-4 text-slate-950" />
                           </div>
                         </div>
                         <div className="flex-1">
-                          <div className="inline-block rounded-2xl px-5 py-3 bg-white">
+                          <div className="inline-block rounded-2xl px-5 py-3 bg-slate-900/80 border border-slate-700">
                             <div className="flex items-center gap-1">
-                              <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
+                              <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
                               <div
-                                className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+                                className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
                                 style={{ animationDelay: "150ms" }}
-                              ></div>
+                              />
                               <div
-                                className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
+                                className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
                                 style={{ animationDelay: "300ms" }}
-                              ></div>
+                              />
                             </div>
                           </div>
                         </div>
@@ -689,80 +713,182 @@ export default function HomePage() {
               </div>
             </ScrollArea>
 
-            <div className="border-t border-gray-200 bg-white p-4">
-              <div className="max-w-4xl mx-auto">
-                <div className="flex gap-3 items-end bg-white rounded-2xl p-2 border border-gray-200">
-                  <div className="relative" ref={plusMenuRef}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowPlusMenu(!showPlusMenu);
-                      }}
-                      disabled={loading}
-                      className="h-10 w-10 p-0 hover:bg-gray-100 rounded-xl"
-                    >
-                      <Plus className="h-5 w-5" />
-                    </Button>
-
-                    {showPlusMenu && (
-                      <div className="absolute bottom-full left-0 mb-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
-                        <button
-                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center"
-                          onClick={() => handlePrefixSelect("professor> ")}
-                        >
-                          <User className="h-4 w-4 mr-2" />
-                          Professor
-                        </button>
-                        <button
-                          className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 flex items-center"
-                          onClick={() => handlePrefixSelect("course> ")}
-                        >
-                          <MessageSquare className="h-4 w-4 mr-2" />
-                          Course
-                        </button>
-                      </div>
-                    )}
-                  </div>
+            <div className="border-t border-slate-700 bg-slate-950/95 shadow-lg shadow-slate-900/40">
+              <div className="max-w-4xl mx-auto px-4 py-4">
+                <div className="flex gap-3 items-end bg-slate-900/80 rounded-2xl p-2 border border-slate-700 shadow-lg shadow-slate-900/60">
                   <Input
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     onKeyPress={handleMessageKeyPress}
-                    placeholder="Message ChatBot AI..."
+                    placeholder="Ask about courses, prerequisites, or professors..."
                     disabled={loading}
-                    className="flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
+                    className="flex-1 border-0 bg-transparent text-slate-50 placeholder:text-slate-500 focus-visible:ring-0 focus-visible:ring-offset-0"
                   />
                   <Button
                     onClick={sendMessage}
                     disabled={loading || !message.trim()}
-                    className="bg-black hover:bg-gray-800 rounded-xl h-10 w-10 p-0"
+                    className="bg-emerald-500 hover:bg-emerald-400 rounded-xl h-10 w-10 p-0 text-slate-950 disabled:opacity-60"
                   >
-                    <Send className="h-4 w-4 text-white" />
+                    <Send className="h-4 w-4" />
                   </Button>
                 </div>
-                <p className="text-xs text-center text-gray-400 mt-3">
-                  ChatBot AI can make mistakes. Check important info.
+                <p className="text-xs text-center text-slate-500 mt-3">
+                  Course Co-Pilot uses AI and may make mistakes. Double-check
+                  important academic decisions.
                 </p>
               </div>
             </div>
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center bg-white">
-            <div className="text-center px-4">
-              <MessageSquare className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-              <h2 className="text-3xl font-bold mb-3">Welcome to ChatBot AI</h2>
-              <p className="text-gray-600 mb-8 max-w-md">
-                Start a new conversation or select an existing one from the
-                sidebar
-              </p>
-              <Button
-                onClick={createNewConversation}
-                className="bg-black hover:bg-gray-800 rounded-full text-white"
-              >
-                <Plus className="h-4 w-4 mr-2 text-white" />
-                Start New Chat
-              </Button>
+          // DASHBOARD VIEW
+          <div className="flex-1 flex items-center justify-center bg-slate-950 px-4">
+            <div className="max-w-5xl w-full mx-auto py-10">
+              {/* Header */}
+              <div className="text-center mb-10">
+                <p className="text-xs uppercase tracking-[0.2em] text-emerald-400 mb-2 flex items-center justify-center gap-2">
+                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  Your academic journey · Planning dashboard
+                </p>
+                <h1 className="text-3xl md:text-4xl font-semibold text-slate-50 mb-2">
+                  Hi{user?.username ? `, ${user.username}` : ""} 👋
+                </h1>
+                <p className="text-sm md:text-base text-slate-300 max-w-xl mx-auto">
+                  What would you like to do today? Plan a semester, explore
+                  electives, or check that you're still on track to graduate.
+                </p>
+              </div>
+
+              {/* Quick Actions Grid */}
+              <div className="grid md:grid-cols-2 gap-6 items-stretch mb-8 mx-auto max-w-3xl">
+                <button
+                  onClick={() =>
+                    startConversationWithPrompt(
+                      "Semester plan",
+                      "Help me plan my next semester schedule. I want a balanced workload and to stay on track for my degree requirements."
+                    )
+                  }
+                  className="w-full text-left bg-slate-900/80 border border-slate-700 rounded-2xl p-6 hover:border-emerald-500/70 hover:bg-slate-900 transition-colors shadow-lg shadow-slate-900/40"
+                >
+                  <div className="inline-flex h-12 w-12 rounded-xl bg-emerald-500/20 items-center justify-center mb-3">
+                    <Sparkles className="h-6 w-6 text-emerald-300" />
+                  </div>
+                  <p className="text-base font-semibold text-slate-50 mb-2">
+                    Plan my next semester
+                  </p>
+                  <p className="text-sm text-slate-400">
+                    Build an ideal schedule with credit limits, time
+                    preferences, and graduation goals.
+                  </p>
+                </button>
+
+                <button
+                  onClick={() =>
+                    startConversationWithPrompt(
+                      "Explore electives",
+                      "Suggest interesting electives for my program, especially courses related to my interests. Explain why each course might be a good fit."
+                    )
+                  }
+                  className="w-full text-left bg-slate-900/80 border border-slate-700 rounded-2xl p-6 hover:border-emerald-500/70 hover:bg-slate-900 transition-colors shadow-lg shadow-slate-900/40"
+                >
+                  <div className="inline-flex h-12 w-12 rounded-xl bg-emerald-500/20 items-center justify-center mb-3">
+                    <MessageSquare className="h-6 w-6 text-emerald-300" />
+                  </div>
+                  <p className="text-base font-semibold text-slate-50 mb-2">
+                    Explore electives
+                  </p>
+                  <p className="text-sm text-slate-400">
+                    Discover electives that match your interests, workload
+                    preferences, and time constraints.
+                  </p>
+                </button>
+
+                <button
+                  onClick={() =>
+                    startConversationWithPrompt(
+                      "Compare courses",
+                      "Help me compare two or more courses in terms of workload, difficulty, overlap, and how they fit my goals."
+                    )
+                  }
+                  className="w-full text-left bg-slate-900/80 border border-slate-700 rounded-2xl p-6 hover:border-emerald-500/70 hover:bg-slate-900 transition-colors shadow-lg shadow-slate-900/40"
+                >
+                  <div className="inline-flex h-12 w-12 rounded-xl bg-emerald-500/20 items-center justify-center mb-3">
+                    <Sparkles className="h-6 w-6 text-emerald-300" />
+                  </div>
+                  <p className="text-base font-semibold text-slate-50 mb-2">
+                    Compare courses
+                  </p>
+                  <p className="text-sm text-slate-400">
+                    See side-by-side differences in workload, topics, and
+                    sequence recommendations.
+                  </p>
+                </button>
+
+                <button
+                  onClick={() =>
+                    startConversationWithPrompt(
+                      "Ask about a professor",
+                      "Give me insight into a professor's teaching style, grading, and typical workload for their courses."
+                    )
+                  }
+                  className="w-full text-left bg-slate-900/80 border border-slate-700 rounded-2xl p-6 hover:border-emerald-500/70 hover:bg-slate-900 transition-colors shadow-lg shadow-slate-900/40"
+                >
+                  <div className="inline-flex h-12 w-12 rounded-xl bg-emerald-500/20 items-center justify-center mb-3">
+                    <User className="h-6 w-6 text-emerald-300" />
+                  </div>
+                  <p className="text-base font-semibold text-slate-50 mb-2">
+                    Ask about a professor
+                  </p>
+                  <p className="text-sm text-slate-400">
+                    Learn about teaching style, expectations, and what previous
+                    students say.
+                  </p>
+                </button>
+              </div>
+
+              {/* Recent Plans */}
+              <div className="max-w-4xl mx-auto">
+                <div className="bg-slate-900/80 border border-slate-700 rounded-2xl p-6 shadow-lg shadow-slate-900/60">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-semibold text-slate-50">
+                      Recent plans
+                    </h3>
+                    {recentConversations.length > 0 && (
+                      <span className="text-xs text-slate-500">
+                        Last {recentConversations.length} chats
+                      </span>
+                    )}
+                  </div>
+                  {recentConversations.length === 0 ? (
+                    <p className="text-sm text-slate-400">
+                      You haven't started any planning chats yet. Use a quick
+                      action above to begin.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {recentConversations.map((conv) => (
+                        <button
+                          key={conv.id}
+                          onClick={() => selectConversation(conv.id)}
+                          className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-950/40 hover:bg-slate-800/70 border border-transparent hover:border-slate-600 text-left transition-colors"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-slate-100 truncate">
+                              {truncateTitle(conv.title, 40)}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              Last updated{" "}
+                              {new Date(conv.updated_at).toLocaleString()}
+                            </p>
+                          </div>
+                          <span className="text-xs text-emerald-300 ml-3">
+                            Continue
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}

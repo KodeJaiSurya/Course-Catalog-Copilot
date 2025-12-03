@@ -13,7 +13,7 @@ class UserCreate(UserBase):
     """Schema for creating a user"""
     password: str
     degree: str 
-    course: str 
+    course: str  
     courses_taken: Optional[List[str]] = None
 
 

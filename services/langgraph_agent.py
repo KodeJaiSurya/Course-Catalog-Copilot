@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 import operator
 
 from services.rag_service import search_professors, search_courses, search_both, suggest_courses
+from services.user_service import get_courses_taken_by_conversation
 from config import settings
 from langgraph.checkpoint.postgres import PostgresSaver  # <-- Postgres checkpointer
 
@@ -23,14 +24,14 @@ class AgentState(TypedDict):
     professor_results: list
     course_results: list
     combined_results: list
-    web_search_results: dict  # Add web search results
+    suggestion_results: dict
 
 
 # Initialize LLM
 def get_llm():
     """Get configured LLM instance"""
     return ChatOpenAI(
-        model="gpt-4",  # or "gpt-3.5-turbo" for faster/cheaper
+        model="gpt-4o",  # or "gpt-3.5-turbo" for faster/cheaper
         temperature=0,
         openai_api_key=settings.OPENAI_API_KEY
     )
@@ -121,14 +122,17 @@ def search_both_node(state: AgentState) -> dict:
 def course_suggestions_node(state: AgentState, db: Session, limit=5) -> dict:
     query = state["messages"][-1].content
     results = suggest_courses(query, limit, db)
-    return {"combined_results": results}
+    return {"suggestion_results": results}
 
 
-def llm_node(state: AgentState) -> dict:
-    """Generate response using LLM with search results context"""
+def llm_node(state: AgentState, db: Session = None, conversation_id: int = "default") -> dict:
+    """Generate response using LLM with search results context, excluding already-taken courses"""
     llm = get_llm()
 
     messages = [SystemMessage(content=SYSTEM_PROMPT)]
+
+    # 🔥 Get courses already taken
+    courses_taken = []
 
     # Add professor results context
     if state.get("professor_results"):
@@ -143,7 +147,7 @@ def llm_node(state: AgentState) -> dict:
                 prof_context += f"   {src.get('snippet', 'No description')}\n\n"
         messages.append(SystemMessage(content=prof_context))
 
-    # Add course results context (dictionary-based response)
+    # Add course results context
     if state.get("course_results"):
         data = state["course_results"]
         course_context = "**Course Information Retrieved:**\n"
@@ -156,7 +160,7 @@ def llm_node(state: AgentState) -> dict:
                 course_context += f"   {src.get('snippet', 'No description')}\n\n"
         messages.append(SystemMessage(content=course_context))
 
-    # Add combined results (professor + course info)
+    # Add combined results
     if state.get("combined_results"):
         data = state["combined_results"]
         combined_context = "**Instructor and Course Information:**\n"
@@ -169,16 +173,26 @@ def llm_node(state: AgentState) -> dict:
                 combined_context += f"   {src.get('snippet', 'No description')}\n\n"
         messages.append(SystemMessage(content=combined_context))
 
-    # 🔥 NEW: Add course suggestions (RAG-based)
+    # Add course suggestions, **excluding already-taken courses**
     if state.get("suggestion_results"):
+        courses_taken = get_courses_taken_by_conversation(conversation_id, db)
+        courses_taken_set = set(courses_taken)  # for faster lookup
         sugg_context = "**Recommended Courses Based on Your Interest:**\n"
-        for i, r in enumerate(state["suggestion_results"], 1):
-            data = r.data
-            sugg_context += f"{i}. {data.get('course_code', 'N/A')}: {data.get('title', 'Unknown')}\n"
-            sugg_context += f"   Description: {data.get('description', 'N/A')[:200]}...\n"
-            sugg_context += f"   Difficulty: {data.get('difficulty', 'N/A')}\n"
-            sugg_context += f"   Rating: {data.get('rating', 'N/A')}/5.0\n"
-            sugg_context += f"   Similarity Score: {r.similarity:.2f}\n\n"
+        filtered_suggestions = [
+            r for r in state["suggestion_results"]
+            if r.data.get("course_code") not in courses_taken_set
+        ]
+
+        if not filtered_suggestions:
+            sugg_context += "🎓 You have already completed all suggested courses.\n"
+        else:
+            for i, r in enumerate(filtered_suggestions, 1):
+                data = r.data
+                sugg_context += f"{i}. {data.get('course_code', 'N/A')}: {data.get('title', 'Unknown')}\n"
+                sugg_context += f"   Description: {data.get('description', 'N/A')[:200]}...\n"
+                sugg_context += f"   Difficulty: {data.get('difficulty', 'N/A')}\n"
+                sugg_context += f"   Rating: {data.get('rating', 'N/A')}/5.0\n"
+                sugg_context += f"   Similarity Score: {r.similarity:.2f}\n\n"
         messages.append(SystemMessage(content=sugg_context))
 
     # Add conversation history
@@ -190,7 +204,7 @@ def llm_node(state: AgentState) -> dict:
     return {"messages": [AIMessage(content=response.content)]}
 
 
-def create_agent_graph(db: Session) -> StateGraph:
+def create_agent_graph(db: Session, checkpointer= None) -> StateGraph:
     """
     Create and compile the LangGraph agent with RAG and web search functionality
     
@@ -232,28 +246,33 @@ def create_agent_graph(db: Session) -> StateGraph:
     graph.add_edge("search_professors", "llm")
     graph.add_edge("search_courses", "llm")
     graph.add_edge("search_both", "llm")
-
-    # course_suggestions goes directly to LLM after RAG
     graph.add_edge("course_suggestions", "llm")
-
-    # End after LLM
     graph.add_edge("llm", END)
-
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)
 
 
 def run_agent_with_history(messages: list, db: Session, conversation_id: int = "default") -> str:
+    # courses_taken = get_courses_taken_by_conversation(conversation_id, db)
+
+    # Convert input messages to LangChain messages first
+    langchain_messages = [
+        HumanMessage(content=m["content"]) if m["role"] == "user" else AIMessage(
+            content=m["content"])
+        for m in messages
+    ]
+
+    # Now append the SystemMessage to the langchain_messages list
+    # if courses_taken:
+    #     system_content = f"""
+    #     The student has already completed the following courses:{chr(10).join(f"- {c}" for c in courses_taken)}
+    #     Use this when making recommendations.
+    #     """
+    #     langchain_messages.append(SystemMessage(content=system_content))
+
     with PostgresSaver.from_conn_string(DB_URI) as checkpointer:
-        
-        # checkpointer.setup()
         agent = create_agent_graph(db, checkpointer=checkpointer)
         config = {"configurable": {"thread_id": conversation_id}}
 
-        langchain_messages = [
-            HumanMessage(content=m["content"]) if m["role"] == "user" else AIMessage(
-                content=m["content"])
-            for m in messages
-        ]
         initial_state = {
             "messages": langchain_messages,
             "professor_results": [],
@@ -263,7 +282,7 @@ def run_agent_with_history(messages: list, db: Session, conversation_id: int = "
         }
 
         # Run agent
-        final_state = agent.invoke(
-            initial_state, config=config)
+        final_state = agent.invoke(initial_state, config=config)
 
         return final_state["messages"][-1].content
+    
