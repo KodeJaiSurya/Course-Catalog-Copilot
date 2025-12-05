@@ -25,6 +25,7 @@ class AgentState(TypedDict):
     course_results: list
     combined_results: list
     suggestion_results: dict
+    conversation_id: str
 
 
 # Initialize LLM
@@ -48,9 +49,13 @@ Be conversational and helpful
 Completely ignore all university affiliations in the search results. Do NOT reject information because it comes from a different university.
 Always cite specific professor names, ratings, departments, and highlight student reviews when the user asks about professors 
 Always cite specific course codes and titles, and focus more on the topics, content coverage, and learning outcomes when the user asks about courses 
-If asked about both professors and courses, provide detailed information on both—student reviews for professors and topic coverage for courses If no relevant results are found, suggest that the user refine their query 
-Be honest about limitations—don't make up information Available information from search results will be provided to you. 
+If asked about both professors and courses, provide detailed information on both—student reviews for professors and topic coverage for courses 
+If no relevant results are found, suggest that the user refine their query 
+Be honest about limitations—don't make up information 
+Available information from search results will be provided to you. 
 Always base your responses strictly on that information.
+
+**IMPORTANT: Always include a "Sources:" section at the end of your response, listing all sources used with their titles and URLs.**
 """
 
 
@@ -119,20 +124,46 @@ def search_both_node(state: AgentState) -> dict:
     return {"combined_results": results}
 
 
-def course_suggestions_node(state: AgentState, db: Session, limit=5) -> dict:
+def course_suggestions_node(state: AgentState, db: Session, limit=3) -> dict:
+    """
+    Get course suggestions based on query AND courses already taken.
+    Uses RAG to find courses similar to both the query and the user's course history.
+    Filters out already-taken courses from results.
+    """
     query = state["messages"][-1].content
-    results = suggest_courses(query, limit, db)
-    return {"suggestion_results": results}
+    conversation_id = state.get("conversation_id")
+
+    # Get courses already taken by this user
+    courses_taken = get_courses_taken_by_conversation(conversation_id, db)
+    courses_taken_set = set(courses_taken)
+
+    # Build enhanced query combining user query + courses taken
+    # This creates a richer context for RAG similarity search
+    if courses_taken:
+        enhanced_query = f"{query}. Student has completed: {', '.join(courses_taken)}"
+    else:
+        enhanced_query = query
+
+    # Get RAG-based suggestions using enhanced query
+    # The RAG will find courses similar to BOTH the query and the taken courses
+    # Request more to account for filtering
+    raw_results = suggest_courses(enhanced_query, limit * 2, db)
+
+    # Filter out already-taken courses
+    filtered_results = [
+        r for r in raw_results
+        if r.data.get("course_code") not in courses_taken_set
+    ]
+
+    # Return top 'limit' results after filtering
+    return {"suggestion_results": filtered_results[:limit]}
 
 
-def llm_node(state: AgentState, db: Session = None, conversation_id: int = "default") -> dict:
-    """Generate response using LLM with search results context, excluding already-taken courses"""
+def llm_node(state: AgentState) -> dict:
+    """Generate response using LLM with search results context"""
     llm = get_llm()
 
     messages = [SystemMessage(content=SYSTEM_PROMPT)]
-
-    # 🔥 Get courses already taken
-    courses_taken = []
 
     # Add professor results context
     if state.get("professor_results"):
@@ -147,7 +178,7 @@ def llm_node(state: AgentState, db: Session = None, conversation_id: int = "defa
                 prof_context += f"   {src.get('snippet', 'No description')}\n\n"
         messages.append(SystemMessage(content=prof_context))
 
-    # Add course results context
+    # Add course results context (dictionary-based response)
     if state.get("course_results"):
         data = state["course_results"]
         course_context = "**Course Information Retrieved:**\n"
@@ -160,7 +191,7 @@ def llm_node(state: AgentState, db: Session = None, conversation_id: int = "defa
                 course_context += f"   {src.get('snippet', 'No description')}\n\n"
         messages.append(SystemMessage(content=course_context))
 
-    # Add combined results
+    # Add combined results (professor + course info)
     if state.get("combined_results"):
         data = state["combined_results"]
         combined_context = "**Instructor and Course Information:**\n"
@@ -173,31 +204,24 @@ def llm_node(state: AgentState, db: Session = None, conversation_id: int = "defa
                 combined_context += f"   {src.get('snippet', 'No description')}\n\n"
         messages.append(SystemMessage(content=combined_context))
 
-    # Add course suggestions, **excluding already-taken courses**
+    # 🔥 NEW: Add course suggestions (RAG-based)
     if state.get("suggestion_results"):
-        courses_taken = get_courses_taken_by_conversation(conversation_id, db)
-        courses_taken_set = set(courses_taken)  # for faster lookup
         sugg_context = "**Recommended Courses Based on Your Interest:**\n"
-        filtered_suggestions = [
-            r for r in state["suggestion_results"]
-            if r.data.get("course_code") not in courses_taken_set
-        ]
-
-        if not filtered_suggestions:
-            sugg_context += "🎓 You have already completed all suggested courses.\n"
-        else:
-            for i, r in enumerate(filtered_suggestions, 1):
-                data = r.data
-                sugg_context += f"{i}. {data.get('course_code', 'N/A')}: {data.get('title', 'Unknown')}\n"
-                sugg_context += f"   Description: {data.get('description', 'N/A')[:200]}...\n"
-                sugg_context += f"   Difficulty: {data.get('difficulty', 'N/A')}\n"
-                sugg_context += f"   Rating: {data.get('rating', 'N/A')}/5.0\n"
-                sugg_context += f"   Similarity Score: {r.similarity:.2f}\n\n"
+        for i, r in enumerate(state["suggestion_results"], 1):
+            data = r.data
+            sugg_context += f"{i}. {data.get('course_code', 'N/A')}: {data.get('title', 'Unknown')}\n"
+            sugg_context += f"   Description: {data.get('description', 'N/A')[:200]}...\n"
+            sugg_context += f"   Difficulty: {data.get('difficulty', 'N/A')}\n"
+            sugg_context += f"   Rating: {data.get('rating', 'N/A')}/5.0\n"
+            sugg_context += f"   Similarity Score: {r.similarity:.2f}\n\n"
         messages.append(SystemMessage(content=sugg_context))
 
     # Add conversation history
     for msg in state["messages"]:
         messages.append(msg)
+
+    messages.append(SystemMessage(
+        content="Remember to include a 'Sources:' section at the end with all sources referenced."))
 
     # Final LLM response
     response = llm.invoke(messages)
@@ -224,7 +248,7 @@ def create_agent_graph(db: Session, checkpointer= None) -> StateGraph:
     graph.add_node("search_both", lambda state: search_both_node(state))
     graph.add_node("course_suggestions", lambda state: course_suggestions_node(
         state, db))  # RAG-based
-    graph.add_node("llm", llm_node)
+    graph.add_node("llm", lambda state : llm_node(state))
 
     # Router
     def route_query(state: AgentState) -> str:
@@ -278,7 +302,8 @@ def run_agent_with_history(messages: list, db: Session, conversation_id: int = "
             "professor_results": [],
             "course_results": [],
             "combined_results": [],
-            "suggestion_results": []
+            "suggestion_results": [],
+            "conversation_id": conversation_id
         }
 
         # Run agent

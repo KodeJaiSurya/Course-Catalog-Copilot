@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   MessageSquare,
   Send,
@@ -19,6 +18,7 @@ import {
   Loader2,
   AlertCircle,
 } from "lucide-react";
+import { Link } from "react-router-dom";
 
 const API_BASE_URL = "http://localhost:8000";
 
@@ -46,7 +46,6 @@ interface ConversationWithMessages extends Conversation {
   messages: Message[];
 }
 
-// Simple Markdown parser for bold text
 const parseMarkdown = (text: string) => {
   let cleanedText = text
     .replace(/\[\^(\d+)\^\]/g, "[$1]")
@@ -130,6 +129,7 @@ export default function HomePage() {
   const [sessionExpired, setSessionExpired] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadUser();
@@ -258,27 +258,6 @@ export default function HomePage() {
     }
   };
 
-  const simulateStreaming = (text: string, tempAiId: number) => {
-    return new Promise<void>((resolve) => {
-      let index = 0;
-      const interval = setInterval(() => {
-        index++;
-        setSelectedConversation((conv) => {
-          if (!conv) return conv;
-          const updatedMessages = conv.messages.map((m) =>
-            m.id === tempAiId ? { ...m, content: text.slice(0, index) } : m
-          );
-          return { ...conv, messages: updatedMessages };
-        });
-
-        if (index >= text.length) {
-          clearInterval(interval);
-          resolve();
-        }
-      }, 20);
-    });
-  };
-
   const sendMessage = async () => {
     if (!message.trim() || !selectedConversation || loading) return;
 
@@ -310,32 +289,8 @@ export default function HomePage() {
         `/conversations/${selectedConversation.id}`
       );
 
-      const latestAiMessage =
-        updatedConv.messages[updatedConv.messages.length - 1];
-
-      if (latestAiMessage && latestAiMessage.role === "assistant") {
-        const tempAiId = Date.now() + 1;
-        setSelectedConversation((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            messages: [
-              ...prev.messages,
-              { ...latestAiMessage, id: tempAiId, content: "" },
-            ],
-          };
-        });
-
-        setLoading(false);
-
-        await simulateStreaming(latestAiMessage.content, tempAiId);
-
-        setSelectedConversation(updatedConv);
-      } else {
-        setSelectedConversation(updatedConv);
-        setLoading(false);
-      }
-
+      setSelectedConversation(updatedConv);
+      setLoading(false);
       loadConversations();
     } catch (error) {
       console.error("Failed to send message:", error);
@@ -421,7 +376,6 @@ export default function HomePage() {
     )
     .slice(0, 5);
 
-  // Session expired overlay
   if (sessionExpired) {
     return (
       <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center z-50">
@@ -457,12 +411,12 @@ export default function HomePage() {
   }
 
   return (
-    <div className="flex min-h-screen items-stretch bg-slate-950 text-slate-50">
+    <div className="flex h-screen bg-slate-950 text-slate-50 overflow-hidden">
       {/* Sidebar */}
       <div
         className={`${
           sidebarOpen ? "w-64" : "w-0"
-        } transition-all duration-300 bg-slate-900/80 border-r border-slate-700 flex flex-col overflow-hidden shadow-lg shadow-slate-900/40`}
+        } transition-all duration-300 bg-slate-900/80 border-r border-slate-700 flex flex-col overflow-hidden shadow-lg shadow-slate-900/40 flex-shrink-0`}
       >
         <div className="px-4 pt-4 pb-3 border-b border-slate-700 flex items-center justify-between">
           <span className="text-xs font-semibold tracking-[0.2em] text-emerald-400 uppercase">
@@ -480,7 +434,7 @@ export default function HomePage() {
           </Button>
         </div>
 
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto min-h-0">
           <div className="p-2 space-y-1">
             {conversations.map((conv) => (
               <div key={conv.id} className="group relative">
@@ -571,9 +525,9 @@ export default function HomePage() {
               </div>
             ))}
           </div>
-        </ScrollArea>
+        </div>
 
-        <div className="p-3 border-t border-slate-700">
+        <div className="p-3 border-t border-slate-700 flex-shrink-0">
           <div className="bg-slate-800/50 rounded-xl p-2 space-y-1">
             <div className="flex items-center gap-2 px-2 py-1.5">
               <div className="h-8 w-8 rounded-full bg-emerald-500/20 flex items-center justify-center">
@@ -611,8 +565,8 @@ export default function HomePage() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col">
-        <div className="border-b border-slate-700 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 px-4 py-3 flex items-center gap-3 shadow-lg shadow-slate-900/40">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
+        <div className="border-b border-slate-700 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 px-4 py-3 flex items-center gap-3 shadow-lg shadow-slate-900/40 flex-shrink-0">
           <Button
             variant="ghost"
             size="sm"
@@ -634,7 +588,11 @@ export default function HomePage() {
 
         {selectedConversation ? (
           <>
-            <ScrollArea className="flex-1 bg-slate-950">
+            {/* Messages area with fixed scrolling */}
+            <div
+              ref={messagesContainerRef}
+              className="flex-1 overflow-y-auto min-h-0 bg-slate-950"
+            >
               <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
                 {selectedConversation.messages.length === 0 && !loading ? (
                   <div className="text-center py-12">
@@ -711,9 +669,10 @@ export default function HomePage() {
                 )}
                 <div ref={messagesEndRef} />
               </div>
-            </ScrollArea>
+            </div>
 
-            <div className="border-t border-slate-700 bg-slate-950/95 shadow-lg shadow-slate-900/40">
+            {/* Input area */}
+            <div className="border-t border-slate-700 bg-slate-950/95 shadow-lg shadow-slate-900/40 flex-shrink-0">
               <div className="max-w-4xl mx-auto px-4 py-4">
                 <div className="flex gap-3 items-end bg-slate-900/80 rounded-2xl p-2 border border-slate-700 shadow-lg shadow-slate-900/60">
                   <Input
@@ -736,158 +695,217 @@ export default function HomePage() {
                   Course Co-Pilot uses AI and may make mistakes. Double-check
                   important academic decisions.
                 </p>
+                <p className="text-[11px] text-center text-slate-600 mt-1">
+                  By using Course Co-Pilot, you agree to our{" "}
+                  <Link
+                    to="/privacy"
+                    className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+                  >
+                    Privacy &amp; Data Use
+                  </Link>{" "}
+                  policy.
+                </p>
+                <p className="text-[11px] text-center text-slate-600">
+                  Review the{" "}
+                  <Link
+                    to="/data-sources"
+                    className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+                  >
+                    Data Sources &amp; Accuracy
+                  </Link>{" "}
+                  overview or our{" "}
+                  <Link
+                    to="/fairness"
+                    className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+                  >
+                    Fairness &amp; Limitations
+                  </Link>{" "}
+                  note.
+                </p>
               </div>
             </div>
           </>
         ) : (
           // DASHBOARD VIEW
-          <div className="flex-1 flex items-center justify-center bg-slate-950 px-4">
-            <div className="max-w-5xl w-full mx-auto py-10">
-              {/* Header */}
-              <div className="text-center mb-10">
-                <p className="text-xs uppercase tracking-[0.2em] text-emerald-400 mb-2 flex items-center justify-center gap-2">
-                  <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                  Your academic journey · Planning dashboard
-                </p>
-                <h1 className="text-3xl md:text-4xl font-semibold text-slate-50 mb-2">
-                  Hi{user?.username ? `, ${user.username}` : ""} 👋
-                </h1>
-                <p className="text-sm md:text-base text-slate-300 max-w-xl mx-auto">
-                  What would you like to do today? Plan a semester, explore
-                  electives, or check that you're still on track to graduate.
-                </p>
-              </div>
+          <div className="flex-1 overflow-y-auto min-h-0 bg-slate-950">
+            <div className="flex items-center justify-center px-4 py-10">
+              <div className="max-w-5xl w-full mx-auto">
+                {/* Header */}
+                <div className="text-center mb-10">
+                  <p className="text-xs uppercase tracking-[0.2em] text-emerald-400 mb-2 flex items-center justify-center gap-2">
+                    <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    Your academic journey · Planning dashboard
+                  </p>
+                  <h1 className="text-3xl md:text-4xl font-semibold text-slate-50 mb-2">
+                    Hi{user?.username ? `, ${user.username}` : ""} 👋
+                  </h1>
+                  <p className="text-sm md:text-base text-slate-300 max-w-xl mx-auto">
+                    What would you like to do today? Plan a semester, explore
+                    electives, or check that you're still on track to graduate.
+                  </p>
+                </div>
 
-              {/* Quick Actions Grid */}
-              <div className="grid md:grid-cols-2 gap-6 items-stretch mb-8 mx-auto max-w-3xl">
-                <button
-                  onClick={() =>
-                    startConversationWithPrompt(
-                      "Semester plan",
-                      "Help me plan my next semester schedule. I want a balanced workload and to stay on track for my degree requirements."
-                    )
-                  }
-                  className="w-full text-left bg-slate-900/80 border border-slate-700 rounded-2xl p-6 hover:border-emerald-500/70 hover:bg-slate-900 transition-colors shadow-lg shadow-slate-900/40"
-                >
-                  <div className="inline-flex h-12 w-12 rounded-xl bg-emerald-500/20 items-center justify-center mb-3">
-                    <Sparkles className="h-6 w-6 text-emerald-300" />
-                  </div>
-                  <p className="text-base font-semibold text-slate-50 mb-2">
-                    Plan my next semester
-                  </p>
-                  <p className="text-sm text-slate-400">
-                    Build an ideal schedule with credit limits, time
-                    preferences, and graduation goals.
-                  </p>
-                </button>
+                {/* Quick Actions Grid */}
+                <div className="grid md:grid-cols-2 gap-6 items-stretch mb-8 mx-auto max-w-3xl">
+                  <button
+                    onClick={() =>
+                      startConversationWithPrompt(
+                        "Plan my next semester",
+                        "Help me plan my next semester schedule. Suggest a few courses that provide a manageable workload while keeping me on track to meet my degree requirements"
+                      )
+                    }
+                    className="w-full text-left bg-slate-900/80 border border-slate-700 rounded-2xl p-6 hover:border-emerald-500/70 hover:bg-slate-900 transition-colors shadow-lg shadow-slate-900/40"
+                  >
+                    <div className="inline-flex h-12 w-12 rounded-xl bg-emerald-500/20 items-center justify-center mb-3">
+                      <Sparkles className="h-6 w-6 text-emerald-300" />
+                    </div>
+                    <p className="text-base font-semibold text-slate-50 mb-2">
+                      Plan my next semester
+                    </p>
+                    <p className="text-sm text-slate-400">
+                      Build an ideal schedule with credit limits, time
+                      preferences, and graduation goals.
+                    </p>
+                  </button>
 
-                <button
-                  onClick={() =>
-                    startConversationWithPrompt(
-                      "Explore electives",
-                      "Suggest interesting electives for my program, especially courses related to my interests. Explain why each course might be a good fit."
-                    )
-                  }
-                  className="w-full text-left bg-slate-900/80 border border-slate-700 rounded-2xl p-6 hover:border-emerald-500/70 hover:bg-slate-900 transition-colors shadow-lg shadow-slate-900/40"
-                >
-                  <div className="inline-flex h-12 w-12 rounded-xl bg-emerald-500/20 items-center justify-center mb-3">
-                    <MessageSquare className="h-6 w-6 text-emerald-300" />
-                  </div>
-                  <p className="text-base font-semibold text-slate-50 mb-2">
-                    Explore electives
-                  </p>
-                  <p className="text-sm text-slate-400">
-                    Discover electives that match your interests, workload
-                    preferences, and time constraints.
-                  </p>
-                </button>
+                  <button
+                    onClick={() =>
+                      startConversationWithPrompt(
+                        "Explore electives",
+                        "Suggest interesting electives for my program, especially courses related to my interests. Explain why each course might be a good fit."
+                      )
+                    }
+                    className="w-full text-left bg-slate-900/80 border border-slate-700 rounded-2xl p-6 hover:border-emerald-500/70 hover:bg-slate-900 transition-colors shadow-lg shadow-slate-900/40"
+                  >
+                    <div className="inline-flex h-12 w-12 rounded-xl bg-emerald-500/20 items-center justify-center mb-3">
+                      <MessageSquare className="h-6 w-6 text-emerald-300" />
+                    </div>
+                    <p className="text-base font-semibold text-slate-50 mb-2">
+                      Explore electives
+                    </p>
+                    <p className="text-sm text-slate-400">
+                      Discover electives that match your interests, workload
+                      preferences, and time constraints.
+                    </p>
+                  </button>
 
-                <button
-                  onClick={() =>
-                    startConversationWithPrompt(
-                      "Compare courses",
-                      "Help me compare two or more courses in terms of workload, difficulty, overlap, and how they fit my goals."
-                    )
-                  }
-                  className="w-full text-left bg-slate-900/80 border border-slate-700 rounded-2xl p-6 hover:border-emerald-500/70 hover:bg-slate-900 transition-colors shadow-lg shadow-slate-900/40"
-                >
-                  <div className="inline-flex h-12 w-12 rounded-xl bg-emerald-500/20 items-center justify-center mb-3">
-                    <Sparkles className="h-6 w-6 text-emerald-300" />
-                  </div>
-                  <p className="text-base font-semibold text-slate-50 mb-2">
-                    Compare courses
-                  </p>
-                  <p className="text-sm text-slate-400">
-                    See side-by-side differences in workload, topics, and
-                    sequence recommendations.
-                  </p>
-                </button>
+                  <button
+                    onClick={() =>
+                      startConversationWithPrompt(
+                        "Compare courses",
+                        "Help me compare two or more courses in terms of workload, difficulty, overlap, and how they fit my goals."
+                      )
+                    }
+                    className="w-full text-left bg-slate-900/80 border border-slate-700 rounded-2xl p-6 hover:border-emerald-500/70 hover:bg-slate-900 transition-colors shadow-lg shadow-slate-900/40"
+                  >
+                    <div className="inline-flex h-12 w-12 rounded-xl bg-emerald-500/20 items-center justify-center mb-3">
+                      <Sparkles className="h-6 w-6 text-emerald-300" />
+                    </div>
+                    <p className="text-base font-semibold text-slate-50 mb-2">
+                      Compare courses
+                    </p>
+                    <p className="text-sm text-slate-400">
+                      See side-by-side differences in workload, topics, and
+                      sequence recommendations.
+                    </p>
+                  </button>
 
-                <button
-                  onClick={() =>
-                    startConversationWithPrompt(
-                      "Ask about a professor",
-                      "Give me insight into a professor's teaching style, grading, and typical workload for their courses."
-                    )
-                  }
-                  className="w-full text-left bg-slate-900/80 border border-slate-700 rounded-2xl p-6 hover:border-emerald-500/70 hover:bg-slate-900 transition-colors shadow-lg shadow-slate-900/40"
-                >
-                  <div className="inline-flex h-12 w-12 rounded-xl bg-emerald-500/20 items-center justify-center mb-3">
-                    <User className="h-6 w-6 text-emerald-300" />
-                  </div>
-                  <p className="text-base font-semibold text-slate-50 mb-2">
-                    Ask about a professor
-                  </p>
-                  <p className="text-sm text-slate-400">
-                    Learn about teaching style, expectations, and what previous
-                    students say.
-                  </p>
-                </button>
-              </div>
+                  <button
+                    onClick={() =>
+                      startConversationWithPrompt(
+                        "Ask about a professor",
+                        "Give me insight into a professor's teaching style, grading, and typical workload for their courses."
+                      )
+                    }
+                    className="w-full text-left bg-slate-900/80 border border-slate-700 rounded-2xl p-6 hover:border-emerald-500/70 hover:bg-slate-900 transition-colors shadow-lg shadow-slate-900/40"
+                  >
+                    <div className="inline-flex h-12 w-12 rounded-xl bg-emerald-500/20 items-center justify-center mb-3">
+                      <User className="h-6 w-6 text-emerald-300" />
+                    </div>
+                    <p className="text-base font-semibold text-slate-50 mb-2">
+                      Ask about a professor
+                    </p>
+                    <p className="text-sm text-slate-400">
+                      Learn about teaching style, expectations, and what
+                      previous students say.
+                    </p>
+                  </button>
+                </div>
 
-              {/* Recent Plans */}
-              <div className="max-w-4xl mx-auto">
-                <div className="bg-slate-900/80 border border-slate-700 rounded-2xl p-6 shadow-lg shadow-slate-900/60">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-sm font-semibold text-slate-50">
-                      Recent plans
-                    </h3>
-                    {recentConversations.length > 0 && (
-                      <span className="text-xs text-slate-500">
-                        Last {recentConversations.length} chats
-                      </span>
+                {/* Recent Plans */}
+                <div className="max-w-4xl mx-auto">
+                  <div className="bg-slate-900/80 border border-slate-700 rounded-2xl p-6 shadow-lg shadow-slate-900/60">
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-sm font-semibold text-slate-50">
+                        Recent plans
+                      </h3>
+                      {recentConversations.length > 0 && (
+                        <span className="text-xs text-slate-500">
+                          Last {recentConversations.length} chats
+                        </span>
+                      )}
+                    </div>
+                    {recentConversations.length === 0 ? (
+                      <p className="text-sm text-slate-400">
+                        You haven't started any planning chats yet. Use a quick
+                        action above to begin.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {recentConversations.map((conv) => (
+                          <button
+                            key={conv.id}
+                            onClick={() => selectConversation(conv.id)}
+                            className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-950/40 hover:bg-slate-800/70 border border-transparent hover:border-slate-600 text-left transition-colors"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-slate-100 truncate">
+                                {truncateTitle(conv.title, 40)}
+                              </p>
+                              <p className="text-xs text-slate-500">
+                                Last updated{" "}
+                                {new Date(conv.updated_at).toLocaleString()}
+                              </p>
+                            </div>
+                            <span className="text-xs text-emerald-300 ml-3">
+                              Continue
+                            </span>
+                          </button>
+                        ))}
+                      </div>
                     )}
                   </div>
-                  {recentConversations.length === 0 ? (
-                    <p className="text-sm text-slate-400">
-                      You haven't started any planning chats yet. Use a quick
-                      action above to begin.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {recentConversations.map((conv) => (
-                        <button
-                          key={conv.id}
-                          onClick={() => selectConversation(conv.id)}
-                          className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-slate-950/40 hover:bg-slate-800/70 border border-transparent hover:border-slate-600 text-left transition-colors"
-                        >
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-slate-100 truncate">
-                              {truncateTitle(conv.title, 40)}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              Last updated{" "}
-                              {new Date(conv.updated_at).toLocaleString()}
-                            </p>
-                          </div>
-                          <span className="text-xs text-emerald-300 ml-3">
-                            Continue
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
+                <div className="mt-6 text-center text-[11px] text-slate-600">
+                  By using Course Co-Pilot, you agree to our{" "}
+                  <Link
+                    to="/privacy"
+                    className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+                  >
+                    Privacy &amp; Data Use
+                  </Link>{" "}
+                  policy.
+                </div>
+                <p className="text-[11px] text-center text-slate-600 mt-1">
+                  Learn more about our{" "}
+                  <Link
+                    to="/data-sources"
+                    className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+                  >
+                    Data Sources &amp; Accuracy
+                  </Link>
+                  .
+                </p>
+                <p className="text-[11px] text-center text-slate-600 mt-1">
+                  Review our{" "}
+                  <Link
+                    to="/fairness"
+                    className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2"
+                  >
+                    Fairness &amp; Limitations
+                  </Link>{" "}
+                  statement.
+                </p>
               </div>
             </div>
           </div>
