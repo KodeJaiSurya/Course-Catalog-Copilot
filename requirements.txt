@@ -14,3 +14,7 @@ streamlit==1.29.0
 requests==2.31.0
 streamlit-extras
 pydantic-settings
+sentence_transformers
+beautifulsoup4==4.12.3
+requests==2.31.0
+lxml==5.1.0

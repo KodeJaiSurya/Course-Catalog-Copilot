@@ -36,7 +36,10 @@ def create_user(user_data: UserCreate, db: Session):
     hashed_password = get_password_hash(user_data.password)
     db_user = User(
         email=user_data.email,
-        hashed_password=hashed_password
+        hashed_password=hashed_password,
+        degree = user_data.degree,
+        course = user_data.course,
+        courses_taken = user_data.courses_taken
     )
 
     db.add(db_user)

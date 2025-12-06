@@ -15,7 +15,8 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     # Add these fields
-    OPENAI_API_KEY: str
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    SERP_API_KEY: str = os.getenv("SERP_API_KEY", "7f99b371ac185fc5209a03aaa22783eb9be48ad492ab594082e7f62e68c68ca4")
     POSTGRES_USER: str
     POSTGRES_PASSWORD: str
     POSTGRES_DB: str

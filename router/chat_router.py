@@ -11,6 +11,7 @@ from schemas.chat_schema import (
     MessageCreate,
     MessageResponse
 )
+from uuid import UUID
 from services.chat_service import (
     create_conversation,
     get_user_conversations,
@@ -44,7 +45,7 @@ def get_conversations(
 
 @router.get("/{conversation_id}", response_model=ConversationWithMessages)
 def get_conversation(
-    conversation_id: int,
+    conversation_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -54,7 +55,7 @@ def get_conversation(
 
 @router.post("/{conversation_id}/messages", response_model=MessageResponse)
 def create_message(
-    conversation_id: int,
+    conversation_id: UUID,
     message_data: MessageCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -65,7 +66,7 @@ def create_message(
 
 @router.delete("/{conversation_id}")
 def remove_conversation(
-    conversation_id: int,
+    conversation_id: UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -76,7 +77,7 @@ def remove_conversation(
 
 @router.put("/{conversation_id}", response_model=ConversationResponse)
 def update_conversation(
-    conversation_id: int,
+    conversation_id: UUID,
     conversation_data: ConversationCreate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
